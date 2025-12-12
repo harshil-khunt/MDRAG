@@ -1,15 +1,32 @@
 import express from 'express';
+import cors from 'cors';
 import multer from 'multer';
 import crypto from 'crypto';
 import { ObjectId } from 'mongodb';
 import { fileQueue, urlQueue, customTextQueue } from './queues/index.js';
-import { createWorkspace, listWorkspaces, upsertTrackedSource, listTrackedSources, getChangeEvents, upsertQnA, getQnAs, deleteQnA, addCustomText, getCustomTexts, updateCustomText, deleteCustomText } from './lib/database.js';
+import { createWorkspace, listWorkspaces, upsertTrackedSource, listTrackedSources, getChangeEvents, upsertQnA, getQnAs, deleteQnA, addCustomText, getCustomTexts, updateCustomText, deleteCustomText, getWorkspaceDocuments } from './lib/database.js';
 import { fetchUrlBuffer } from './lib/scraper.js';
 import { getEmbeddings } from './lib/embeddings.js';
 import config from './config.js';
 import './scheduler.js'; // Start the scheduler
 
 const app = express();
+
+// Enable CORS for frontend
+app.use(cors({
+  origin: [
+    'http://localhost:5173',
+    'http://localhost:3100',
+    'http://localhost:3000',
+    'http://72.61.40.15:3100',  // Production frontend
+    'http://72.61.40.15:3101',   // Production backend (for testing)
+    'http://localhost:3101'   // Production backend (for testing)
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+
 app.use(express.json());
 const upload = multer({ dest: 'tmp/' });
 
@@ -82,6 +99,18 @@ app.post('/workspaces/:id/upload/url', async (req, res) => {
       tracking: trackChanges ? 'enabled' : 'disabled',
       ocr: enableOcr ? 'enabled' : 'disabled'
     });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get all documents for a workspace (files, URLs, custom texts)
+app.get('/workspaces/:id/documents', async (req, res) => {
+  try {
+    const ws = req.params.id;
+    const documents = await getWorkspaceDocuments(ws);
+    res.json({ documents, total_documents: documents.length });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });

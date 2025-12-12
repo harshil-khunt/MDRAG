@@ -1,9 +1,0 @@
-{
-	"id": "LETaY1MLh0V83GJ",
-	"json": "{\"id\":\"LETaY1MLh0V83GJ\",\"url\":\"https://saeculumsolutions.com/blogs/\",\"loadedUrl\":\"https://saeculumsolutions.com/blogs/\",\"uniqueKey\":\"https://saeculumsolutions.com/blogs\",\"method\":\"GET\",\"noRetry\":false,\"retryCount\":0,\"errorMessages\":[],\"headers\":{},\"userData\":{\"depth\":2,\"__crawlee\":{\"crawlDepth\":2,\"enqueueStrategy\":\"same-hostname\",\"state\":4}},\"handledAt\":\"2025-12-10T04:57:01.556Z\"}",
-	"method": "GET",
-	"orderNo": null,
-	"retryCount": 0,
-	"uniqueKey": "https://saeculumsolutions.com/blogs",
-	"url": "https://saeculumsolutions.com/blogs/"
-}

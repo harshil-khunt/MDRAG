@@ -1,9 +1,0 @@
-{
-	"id": "pm3d87LdM7b3eyt",
-	"json": "{\"id\":\"pm3d87LdM7b3eyt\",\"url\":\"https://saeculumsolutions.com/career/\",\"loadedUrl\":\"https://saeculumsolutions.com/careers/\",\"uniqueKey\":\"https://saeculumsolutions.com/career\",\"method\":\"GET\",\"noRetry\":false,\"retryCount\":0,\"errorMessages\":[],\"headers\":{},\"userData\":{\"depth\":1,\"__crawlee\":{\"crawlDepth\":1,\"enqueueStrategy\":\"same-hostname\",\"state\":4}},\"handledAt\":\"2025-12-10T04:57:00.876Z\"}",
-	"method": "GET",
-	"orderNo": null,
-	"retryCount": 0,
-	"uniqueKey": "https://saeculumsolutions.com/career",
-	"url": "https://saeculumsolutions.com/career/"
-}

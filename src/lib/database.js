@@ -424,3 +424,48 @@ export async function deleteCustomText(workspaceId, textId) {
   
   return result.deletedCount > 0;
 }
+
+/**
+ * Get document summary for a workspace (list of all sources with chunk counts)
+ */
+export async function getWorkspaceDocuments(workspaceId) {
+  const database = await connectDb();
+  const col = database.collection(`ws_${workspaceId}_chunks`);
+  
+  // Aggregate to get unique sources and their chunk counts
+  const pipeline = [
+    {
+      $group: {
+        _id: '$source_name',
+        chunk_count: { $sum: 1 },
+        created_at: { $min: '$created_at' }
+      }
+    },
+    {
+      $project: {
+        source_name: '$_id',
+        chunk_count: 1,
+        created_at: 1,
+        source_type: {
+          $cond: {
+            if: { $regexMatch: { input: '$_id', regex: '^http' } },
+            then: 'url',
+            else: {
+              $cond: {
+                if: { $regexMatch: { input: '$_id', regex: '^custom_text_' } },
+                then: 'custom_text',
+                else: 'file'
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      $sort: { created_at: -1 }
+    }
+  ];
+  
+  const documents = await col.aggregate(pipeline).toArray();
+  return documents;
+}

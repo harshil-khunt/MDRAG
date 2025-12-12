@@ -1,3 +1,33 @@
-node_modules
-upload
-tmp
+# Dependencies
+node_modules/
+package-lock.json
+
+# Environment
+.env
+.env.local
+
+# Build outputs
+dist/
+build/
+
+# Uploads and temp files
+uploads/
+tmp/
+storage/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Docker
+.dockerignore

@@ -1,9 +1,0 @@
-{
-	"id": "jviBUZThPLrTb1h",
-	"json": "{\"id\":\"jviBUZThPLrTb1h\",\"url\":\"https://saeculumsolutions.com/web-application-development/\",\"loadedUrl\":\"https://saeculumsolutions.com/web-application-development/\",\"uniqueKey\":\"https://saeculumsolutions.com/web-application-development\",\"method\":\"GET\",\"noRetry\":false,\"retryCount\":0,\"errorMessages\":[],\"headers\":{},\"userData\":{\"depth\":1,\"__crawlee\":{\"crawlDepth\":1,\"enqueueStrategy\":\"same-hostname\",\"state\":4}},\"handledAt\":\"2025-12-10T04:56:51.282Z\"}",
-	"method": "GET",
-	"orderNo": null,
-	"retryCount": 0,
-	"uniqueKey": "https://saeculumsolutions.com/web-application-development",
-	"url": "https://saeculumsolutions.com/web-application-development/"
-}
