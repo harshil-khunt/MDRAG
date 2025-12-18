@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Card, Input, Button, message, Empty, Tag, Collapse, Spin, Modal } from 'antd'
 import { SendOutlined, RobotOutlined, UserOutlined, BulbOutlined, LoadingOutlined } from '@ant-design/icons'
 import { workspaceApi } from '../services/api'
+import ReactMarkdown from 'react-markdown'
 
 interface ChatTabProps {
   workspaceId: string
@@ -179,7 +180,29 @@ const ChatTab = ({ workspaceId }: ChatTabProps) => {
                           <div className="flex-1">
                             <p className="font-medium mb-2 text-blue-600 mt-0">AI Assistant</p>
                             {chat.answer ? (
-                              <p className="whitespace-pre-wrap text-gray-800 break-words">{chat.answer}</p>
+                              <div className="prose prose-sm max-w-none text-gray-800">
+                                <ReactMarkdown
+                                  components={{
+                                    a: ({ node, ...props }) => (
+                                      <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline" />
+                                    ),
+                                    p: ({ node, ...props }) => (
+                                      <p {...props} className="mb-2 last:mb-0" />
+                                    ),
+                                    ol: ({ node, ...props }) => (
+                                      <ol {...props} className="list-decimal list-inside mb-2 space-y-1" />
+                                    ),
+                                    ul: ({ node, ...props }) => (
+                                      <ul {...props} className="list-disc list-inside mb-2 space-y-1" />
+                                    ),
+                                    li: ({ node, ...props }) => (
+                                      <li {...props} className="ml-2" />
+                                    ),
+                                  }}
+                                >
+                                  {chat.answer}
+                                </ReactMarkdown>
+                              </div>
                             ) : (
                               <div className="flex items-center gap-2 text-gray-500">
                                 <Spin indicator={<LoadingOutlined style={{ fontSize: 16 }} spin />} />

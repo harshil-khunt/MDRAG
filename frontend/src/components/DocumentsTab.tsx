@@ -9,7 +9,7 @@ import {
   GlobalOutlined,
 } from '@ant-design/icons'
 import { workspaceApi, Document } from '../services/api'
-import type { UploadFile } from 'antd/es/upload/interface'
+import type { UploadFile, RcFile } from 'antd/es/upload/interface'
 
 interface DocumentsTabProps {
   workspaceId: string
@@ -40,25 +40,51 @@ const DocumentsTab = ({ workspaceId }: DocumentsTabProps) => {
   }
 
   const handleFileUpload = async () => {
+    console.log('🔵 handleFileUpload called, fileList:', fileList)
+    
     if (fileList.length === 0) {
+      console.log('⚠️ No files in list')
       message.warning('Please select files to upload')
       return
     }
 
     setUploading(true)
+    console.log('🔄 Upload started, extracting files...')
+    
     try {
-      const files = fileList.map(f => f.originFileObj as File)
+      // Extract actual File objects and filter out any undefined
+      const files: File[] = fileList
+        .map(f => f.originFileObj as RcFile)
+        .filter((f): f is RcFile => f !== undefined)
+      
+      console.log('📦 Extracted files:', files.length, files.map(f => f.name))
+      
+      if (files.length === 0) {
+        console.error('❌ No valid files found after extraction')
+        message.error('No valid files found. Please try selecting files again.')
+        setUploading(false)
+        return
+      }
+      
+      console.log(`🚀 Starting upload of ${files.length} files:`, files.map(f => f.name))
+      
       const result = await workspaceApi.uploadFiles(workspaceId, files)
       
       if (result.successful === result.total) {
         message.success(`All ${result.total} files uploaded successfully! Processing in background...`)
       } else {
         message.warning(`${result.successful} of ${result.total} files uploaded successfully`)
+        // Show which files failed
+        const failed = result.results.filter((r: any) => !r.success)
+        if (failed.length > 0) {
+          console.error('Failed uploads:', failed)
+        }
       }
       
       setFileList([])
       setTimeout(loadDocuments, 2000)
     } catch (error: any) {
+      console.error('Upload error:', error)
       message.error(error.response?.data?.error || error.response?.data?.detail || 'Failed to upload files')
     } finally {
       setUploading(false)
@@ -160,17 +186,30 @@ const DocumentsTab = ({ workspaceId }: DocumentsTabProps) => {
           <div>
             <Upload
               fileList={fileList}
-              onChange={({ fileList }) => setFileList(fileList)}
-              beforeUpload={() => false}
+              onChange={({ fileList: newFileList }) => {
+                console.log('Files selected:', newFileList.length)
+                setFileList(newFileList)
+              }}
+              beforeUpload={(file) => {
+                console.log('File added:', file.name, file.size, 'bytes')
+                // Validate file size (max 50MB)
+                const isLt50M = file.size / 1024 / 1024 < 50
+                if (!isLt50M) {
+                  message.error(`${file.name} is too large! Max size is 50MB.`)
+                  return Upload.LIST_IGNORE
+                }
+                return false // Prevent auto upload
+              }}
               multiple
               accept=".pdf,.txt,.md,.doc,.docx"
+              maxCount={10}
             >
               <Button icon={<UploadOutlined />} size="large">
                 Select Files
               </Button>
             </Upload>
             <p className="text-gray-500 text-sm mt-2">
-              Supported formats: PDF, TXT, MD, DOC, DOCX
+              Supported formats: PDF, TXT, MD, DOC, DOCX (Max 50MB per file, 10 files at once)
             </p>
           </div>
           <Button

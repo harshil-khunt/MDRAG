@@ -101,19 +101,27 @@ export const workspaceApi = {
 
   // Upload single file (Node.js backend accepts one file at a time)
   uploadFile: async (workspaceId: string, file: File): Promise<any> => {
+    console.log(`📤 Uploading file: ${file.name} (${file.size} bytes) to workspace ${workspaceId}`)
+    
     const formData = new FormData()
     formData.append('file', file)
     
-    const response = await api.post(
-      `/workspaces/${workspaceId}/upload/file`,
-      formData,
-      {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      }
-    )
-    return response.data
+    try {
+      const response = await api.post(
+        `/workspaces/${workspaceId}/upload/file`,
+        formData,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        }
+      )
+      console.log(`✅ Upload successful:`, response.data)
+      return response.data
+    } catch (error: any) {
+      console.error(`❌ Upload failed for ${file.name}:`, error.response?.data || error.message)
+      throw error
+    }
   },
 
   // Upload multiple files (wrapper that calls uploadFile for each)

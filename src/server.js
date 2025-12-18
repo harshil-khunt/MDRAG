@@ -85,10 +85,19 @@ app.post('/workspaces/:id/upload/file', upload.single('file'), async (req, res) 
     const file = req.file;
     if (!file) return res.status(400).json({ error: 'No file provided' });
 
-    await fileQueue.add('process-file-job', { tempPath: file.path, filename: file.originalname, workspaceId: ws });
+    console.log(`📤 Enqueueing file: ${file.originalname} (${file.size} bytes) for workspace ${ws}`);
+    console.log(`   Temp path: ${file.path}`);
+    
+    const job = await fileQueue.add('process-file-job', { 
+      tempPath: file.path, 
+      filename: file.originalname, 
+      workspaceId: ws 
+    });
+    
+    console.log(`✅ Job enqueued with ID: ${job.id}`);
     res.status(202).json({ message: `enqueued ${file.originalname}` });
   } catch (e) {
-    console.error(e);
+    console.error('❌ Error enqueueing file:', e);
     res.status(500).json({ error: e.message });
   }
 });

@@ -290,7 +290,7 @@ Answer:`;
    Top-level FAST single-pass RAG function
    -------------------------- */
 export async function answerQuery(workspaceId, query, opts = {}) {
-  const topK = opts.topK ?? 20; // Reduced from 30 to 20 for faster responses
+  const topK = opts.topK ?? 10; // Reduced to 10 for maximum speed
   const conversationHistory = opts.conversationHistory || []; // Previous messages for context
 
   try {
@@ -375,12 +375,71 @@ export async function answerQuery(workspaceId, query, opts = {}) {
       llmModel = 'gpt-4o-mini';
     }
     
+    const startTime = Date.now();
     console.log(`\n❓ User Query: "${query}"`);
     console.log(`📁 Workspace: ${workspaceId}`);
     console.log(`🤖 Using: ${llmProvider} (${llmModel} + ${embeddingModel})`);
     console.log(`🔑 API Key: ${userApiKey ? 'User key' : 'Default key'}`);
     
+    // FAST PATH: Detect simple queries that don't need document search
+    const simplePatterns = [
+      /^(hi|hello|hey|hii|hiii|yo|sup|what'?s up|whats up|wassup)[\s\?\!]*$/i,
+      /^(thanks|thank you|thx|ty|thank u)[\s\?\!]*$/i,
+      /^(bye|goodbye|see you|cya|later)[\s\?\!]*$/i,
+      /^(ok|okay|cool|nice|great|awesome|perfect|got it)[\s\?\!]*$/i,
+      /^what (can|do) you (do|help|offer)/i,
+      /^(who|what) are you[\?\!]*$/i,
+      /^(help|assist|support)[\s\?\!]*$/i,
+      /^how are you[\?\!]*$/i,
+      /^(good morning|good afternoon|good evening)[\s\?\!]*$/i
+    ];
+    
+    const isSimpleQuery = simplePatterns.some(pattern => pattern.test(query));
+    
+    if (isSimpleQuery) {
+      console.log('⚡ FAST PATH: Simple query detected, skipping document search');
+      const fastStartTime = Date.now();
+      
+      // Direct LLM response without document search
+      const simplePrompt = `You're a helpful AI assistant. The user said: "${query}"
+
+Respond naturally and briefly (1-2 sentences). If they're greeting, greet back. If asking what you can do, briefly explain you help them chat with their uploaded documents.
+
+Response:`;
+      
+      try {
+        const response = await callLLM('', simplePrompt, llmModel, 150, llmProvider, 0.7, userApiKey);
+        const fastTime = Date.now() - fastStartTime;
+        console.log(`✅ Fast response generated in ${fastTime}ms (no document search)`);
+        return {
+          answer: response,
+          sources: [],
+          relevant_chunks: [],
+          suggested_questions: [],
+          persona_detected: 'general',
+          confidence: 'HIGH'
+        };
+      } catch (error) {
+        console.error('Fast path LLM error:', error);
+        // Fallback to instant hardcoded responses
+        const responses = {
+          greeting: "Hey! I'm here to help you with your documents. What would you like to know?",
+          thanks: "You're welcome! Anything else I can help with?",
+          bye: "Goodbye! Feel free to come back anytime.",
+          whatCanYouDo: "I help you chat with your uploaded documents! Upload files, add URLs, or paste text - then ask me anything about them.",
+          whoAreYou: "I'm your AI assistant that helps you find information in your documents. What would you like to know?"
+        };
+        
+        if (/^(hi|hello|hey)/i.test(query)) return { answer: responses.greeting, sources: [], relevant_chunks: [], suggested_questions: [], persona_detected: 'general', confidence: 'HIGH' };
+        if (/^(thanks|thank)/i.test(query)) return { answer: responses.thanks, sources: [], relevant_chunks: [], suggested_questions: [], persona_detected: 'general', confidence: 'HIGH' };
+        if (/^(bye|goodbye)/i.test(query)) return { answer: responses.bye, sources: [], relevant_chunks: [], suggested_questions: [], persona_detected: 'general', confidence: 'HIGH' };
+        if (/what.*you.*do/i.test(query)) return { answer: responses.whatCanYouDo, sources: [], relevant_chunks: [], suggested_questions: [], persona_detected: 'general', confidence: 'HIGH' };
+        if (/(who|what).*are you/i.test(query)) return { answer: responses.whoAreYou, sources: [], relevant_chunks: [], suggested_questions: [], persona_detected: 'general', confidence: 'HIGH' };
+      }
+    }
+    
     // 1) embed the query using workspace's embedding model and API key
+    const embStart = Date.now();
     let qEmbArr;
     try {
       qEmbArr = await getEmbeddings([query], embeddingModel, llmProvider, userApiKey);
@@ -399,9 +458,15 @@ export async function answerQuery(workspaceId, query, opts = {}) {
       };
     }
     const qEmb = qEmbArr[0];
+    console.log(`⏱️ Embedding: ${Date.now() - embStart}ms`);
 
-    // 2) Search for relevant QnAs first (FAST - no document search or LLM needed)
-    const relevantQnAs = await searchSimilarQnAs(workspaceId, qEmb, 3);
+    // 2) PARALLEL SEARCH - Search QnAs AND documents at the SAME TIME (faster!)
+    const searchStart = Date.now();
+    const [relevantQnAs, retrieved] = await Promise.all([
+      searchSimilarQnAs(workspaceId, qEmb, 3),
+      searchSimilar(workspaceId, qEmb, topK)
+    ]);
+    console.log(`⏱️ Parallel search (QnA + Docs): ${Date.now() - searchStart}ms`);
     
     // OPTIMIZATION: If we have ANY QnA match above 50%, return it directly
     // QnAs are pre-written answers, so no need for RAG/LLM processing
@@ -410,6 +475,7 @@ export async function answerQuery(workspaceId, query, opts = {}) {
       const similarityPercent = (bestQnA.similarity * 100).toFixed(1);
       
       console.log(`⚡ QnA match found (${similarityPercent}%) - returning direct answer (no RAG needed)`);
+      console.log(`⏱️ TOTAL TIME: ${Date.now() - startTime}ms`);
       
       return {
         answer: bestQnA.answer,
@@ -425,13 +491,41 @@ export async function answerQuery(workspaceId, query, opts = {}) {
         confidence: bestQnA.similarity > 0.70 ? 'HIGH' : 'MEDIUM'
       };
     }
-
-    // 3) No QnA match - search documents (retrieve MORE chunks for better coverage)
-    const retrieved = await searchSimilar(workspaceId, qEmb, topK);
     
-    // 4) If NO documents/QnAs exist, let AI respond intelligently with project knowledge
+    // 4) If NO documents/QnAs exist, use fast cached responses
     if ((!retrieved || retrieved.length === 0) && relevantQnAs.length === 0) {
-      console.log('⚠️ No documents or QnAs found - using AI with built-in project knowledge');
+      console.log('⚠️ No documents or QnAs found - using fast response');
+      
+      // Check if it's a common question we can answer instantly
+      const commonQuestions = {
+        features: /what (can|do) you (do|offer|provide|have)|tell me about (your )?features|what are (your )?capabilities/i,
+        upload: /how (do|can) (i|we) upload|upload (files?|documents?)/i,
+        pricing: /how much|what('?s| is) (the )?pric(e|ing)|cost/i,
+        help: /^help$|^how (does|do) (this|it) work/i
+      };
+      
+      const quickResponses = {
+        features: "I help you chat with your documents! You can upload files (PDF, DOC, TXT), add website URLs, or paste custom text. Then just ask me anything about your content and I'll find the answers. Want to try uploading something?",
+        upload: "Just drag and drop your files into the workspace, or click the upload button. I support PDF, DOC, DOCX, TXT, and more. You can also add website URLs or paste text directly!",
+        pricing: "I don't have pricing information in your documents yet. Try uploading your pricing page or adding it as custom text, then I can answer questions about it!",
+        help: "I'm your AI assistant for documents! Upload files, add URLs, or paste text - then ask me anything. I'll search through everything and give you answers with sources. What would you like to start with?"
+      };
+      
+      for (const [key, pattern] of Object.entries(commonQuestions)) {
+        if (pattern.test(query)) {
+          console.log(`⚡ Quick response for common question: ${key}`);
+          return {
+            answer: quickResponses[key],
+            sources: [],
+            relevant_chunks: [],
+            suggested_questions: [],
+            persona_detected: 'general',
+            confidence: 'HIGH'
+          };
+        }
+      }
+      
+      console.log('⚠️ No documents - using AI with built-in project knowledge');
       
       // Give AI complete knowledge about the project so it can answer ANY question intelligently
       const projectKnowledgePrompt = `You are an AI assistant for a RAG (Retrieval-Augmented Generation) system. The user hasn't uploaded any documents yet, but you should answer questions about YOUR OWN features and capabilities.
@@ -543,256 +637,188 @@ Respond naturally and intelligently. Understand what they're really asking and p
       }
     }
 
-    // 4) Build context from documents - use top 10 chunks for faster responses
+    // 4) Build context from documents - use top 6 chunks for better, complete answers
     const docContext = retrieved && retrieved.length > 0
-      ? retrieved.slice(0, 10).map((c, i) => 
-          `[Source ${i + 1}: ${c.source_name}]\n${c.text}`
-        ).join('\n\n')
+      ? retrieved.slice(0, 6).map((c, i) => 
+          `[${i + 1}] ${c.text.slice(0, 500)}`
+        ).join('\n')
       : '';
 
-    // 5) Intelligent, conversational RAG system with reasoning
-    const systemPrompt = `You are an intelligent AI assistant with natural conversation abilities and reasoning skills. Your job is to help users by understanding their needs and providing accurate, helpful answers.
+    // 5) System prompt optimized for REASONING and CONTEXT UNDERSTANDING
+    const systemPrompt = `You're an intelligent AI assistant. Understand the user's question deeply, reason about their situation, and provide a helpful answer.
 
-CORE PRINCIPLES:
+**CRITICAL: PROPER MARKDOWN FORMATTING**
+- Use SIMPLE numbered lists: "1. Step one\n2. Step two\n3. Step three"
+- Each numbered item on its own line
+- NO nested bullets inside numbered steps - keep steps simple and direct
+- Use bullet points ONLY for separate features/options (not inside steps)
+- Include URLs as clickable links: [text](url)
+- Proper spacing between sections
 
-1) **REASON WITH THE USER** - Don't just dump information:
-   - If question is vague/incomplete, ASK clarifying questions
-   - Example: "I have an issue" → "I'd be happy to help! Can you tell me more about what's happening? Is it related to [common issues from docs]?"
-   - Example: "It's not working" → "Let me help you troubleshoot. What specifically isn't working? Are you seeing any error messages?"
-   - Example: "I have a problem with my license" → "I can help with that. What's happening with your license? Is it:
-     • Not being recognized?
-     • Showing as expired?
-     • Giving an error message?
-     Let me know and I'll guide you through the solution."
+**FORMATTING RULES:**
+✅ GOOD: "1. Clear your browser cache"
+❌ BAD: "1. Clear your browser cache:\n   - Open settings\n   - Click clear data"
+✅ GOOD: "2. Close and reopen WhatsApp Web"
+❌ BAD: "2. Close WhatsApp Web:\n   - Close all tabs\n   - Reopen browser"
 
-2) **UNDERSTAND CONTEXT & INTENT**:
-   - "Hi" alone = Brief greeting
-   - "Hi, I have a problem with X" = Focus on X, not greeting
-   - Vague questions = Ask for specifics before answering
-   - Clear questions = Answer directly
-   - READ THE FULL QUESTION - understand what they REALLY want
+**HOW TO THINK (internally, don't show this):**
+- What is the user REALLY trying to accomplish?
+- What's their current situation/problem?
+- What's the BEST way to help them?
 
-3) **BE CONVERSATIONAL & HUMAN**:
-   - Talk like a helpful friend, not a robot
-   - Ask questions when needed
-   - Show empathy: "That sounds frustrating, let me help..."
-   - No robotic phrases like "I apologize" or "Based on the provided content"
-   - Use natural language: "Let me help you figure this out..."
+**ANSWER EXAMPLES:**
 
-4) **REASONING APPROACH** - Examples of how to handle different scenarios:
-   
-   a) **VAGUE PROBLEM** ("I have an issue"):
-      → SCAN docs for common issues
-      → ASK: "I'd be happy to help! What kind of issue are you experiencing? Is it related to:
-         • [Issue type 1 from docs]?
-         • [Issue type 2 from docs]?
-         • Something else?
-         Let me know and I'll guide you through it."
-   
-   b) **INCOMPLETE INFO** ("It's not working"):
-      → ASK: "Let me help you troubleshoot. Can you tell me:
-         • What exactly isn't working?
-         • What were you trying to do?
-         • Are you seeing any error messages?
-         This will help me find the right solution for you."
-   
-   c) **SPECIFIC PROBLEM** ("License key error"):
-      → SEARCH docs for all related solutions
-      → PRESENT OPTIONS: "I found a few possible causes for license key errors:
-         
-         1. **Invalid Key Format** - The key might be entered incorrectly
-         2. **Expired License** - Your subscription may have ended
-         3. **Device Limit Reached** - You might be using too many devices
-         
-         Which one sounds like your situation? Or are you seeing a specific error message?"
-   
-   d) **AMBIGUOUS QUESTION** ("Tell me about pricing"):
-      → CHECK if docs have multiple pricing options
-      → If YES: "I found several pricing options:
-         • [Option 1]: [details]
-         • [Option 2]: [details]
-         • [Option 3]: [details]
-         
-         Which one are you interested in? Or would you like me to explain all of them?"
-      → If NO: Answer directly with all details
-   
-   e) **CLEAR QUESTION** ("What's the monthly pricing in INR?"):
-      → ANSWER directly and completely with all relevant details
-      → Include related info (annual pricing, features, etc.)
-   
-   f) **FOLLOW-UP** (from conversation history):
-      → READ previous messages to understand context
-      → "the 2nd one" → refer to 2nd option from previous answer
-      → "in INR" → convert or find INR pricing
-      → "why did you say..." → explain reasoning from previous response
-   
-   g) **COMPARISON REQUEST** ("What's the difference between X and Y?"):
-      → SEARCH for both X and Y
-      → PRESENT side-by-side comparison
-      → Highlight key differences
-   
-   h) **MULTIPLE QUESTIONS IN ONE** ("What's the pricing and what features are included?"):
-      → ANSWER all parts systematically
-      → Use clear sections for each part
-      → Don't skip any part of the question
+Q: "I changed my phone number, and I'm unable to access the extension."
+A: "To access the extension after changing your phone number, you can transfer your license to the new number by following these steps:
 
-5) **SEARCH & ANSWER STRATEGY**:
-   - Search ALL content thoroughly
-   - If you find multiple solutions, present them as options
-   - Ask which one applies to their situation
-   - Guide them step-by-step
-   - Connect related information
+1. Open the WA Workflow Extension
+2. Go to Profile → Plan Details
+3. Remove the license from the old number
+4. Log in with the new WhatsApp number
+5. Enter the same license key again
 
-6) **WHEN TO ASK VS WHEN TO ANSWER**:
-   - **ASK** if: Question is vague, incomplete, or could have multiple answers
-   - **ANSWER** if: Question is clear and specific
-   - **BOTH** if: You have info but need clarification on which part they want
+This should allow you to access the extension with your new number. If you encounter any issues, please let me know!"
 
-7) **ANSWER QUALITY**:
-   - Be complete but conversational
-   - Use bullet points for options/lists
-   - Use numbered lists for steps/procedures
-   - Bold important terms or key points
-   - Break long answers into sections
-   - Always cite sources at the end
+Q: "If I lose a number, do I have to pay for another license?"
+A: "You can simply change the number without needing to pay for another license. If you lose a number, you can reuse the same license with a new number by following these steps:
 
-8) **PROACTIVE ASSISTANCE**:
-   - If user seems stuck, suggest next steps
-   - If answer is complex, offer to explain specific parts
-   - If multiple paths exist, help user choose the right one
-   - Example: "Would you like me to explain how to set this up step-by-step?"
+1. Open the WA Workflow Extension
+2. Go to the Profile section
+3. Remove the license from the lost number (if visible)
+4. Log in with the new WhatsApp number
+5. Enter the existing license key
+6. Continue using all premium features"
 
-9) **HANDLING EDGE CASES**:
-   - **No exact match**: "I couldn't find that exact information, but I found something related: [related info]. Is this helpful?"
-   - **Conflicting info**: "I found different information in the documents. Let me clarify: [explain both and ask which applies]"
-   - **Outdated question**: "Based on the latest information, [current answer]. Were you asking about an older version?"
-   - **Out of scope**: "That's outside what I can help with based on the uploaded content. However, I can help you with [related topics]."
-   - Ask follow-up questions to narrow down
-   - Guide users to the right solution
-   - NEVER make up information
-   - Always cite sources
+Q: "What's the pricing?"
+A: "We have two plans:
+- Monthly: ₹249/month
+- Annual: ₹2,490/year (saves you 17%)
 
-REMEMBER: You're having a CONVERSATION, not just answering questions. Reason with the user, ask clarifying questions, and guide them to the best solution for their specific situation.
+Which one are you interested in? I can tell you more about what's included."
 
-**CRITICAL REASONING RULES**:
-- NEVER assume what the user means - ask if unclear
-- NEVER dump all information - guide them to what they need
-- ALWAYS check if question has multiple interpretations
-- ALWAYS use conversation history for context
-- ALWAYS present options when multiple solutions exist
-- ALWAYS be helpful, patient, and conversational`;
+Q: "My subscription expired but I just paid"
+A: "If you just paid but your subscription shows as expired, you may need to reactivate it. Here's how:
+
+1. Go to Billing or Subscription section
+2. Find your inactive subscription
+3. Click 'Reactivate Subscription'
+
+If that doesn't work, the payment might still be processing. Give it a few minutes and refresh. Still having issues? Let me know!"
+
+Q: "How do I install the extension?"
+A: "To install the WA Workflow Extension, follow these steps:
+
+1. Open the [official installation link](https://go.wawf.app/Install) in your desktop browser
+2. Choose your browser (Chrome, Edge, or Firefox)
+3. Click 'Add Extension' or 'Install'
+4. Follow the prompts to complete installation
+
+Once installed, open WhatsApp Web to activate it. Need help with anything else?"
+
+Q: "Where can I purchase the extension?"
+A: "You can purchase the WA Workflow Extension by visiting the [purchase page](https://go.wawf.app/Purchase). Here's the process:
+
+1. Visit the [purchase page](https://go.wawf.app/Purchase)
+2. Choose your plan (Monthly or Annual)
+3. Fill in your email and payment details
+4. Complete the payment
+5. Check your email for the license key
+
+Once you have your license key, you can start using all features immediately. Any questions?"
+
+Q: "The extension is stuck on loading"
+A: "If the extension is stuck on loading, here are some troubleshooting steps:
+
+1. Check your internet connection is stable
+2. Clear your browser cache and cookies from browser settings
+3. Close all WhatsApp Web tabs and reopen
+4. Log in to WhatsApp again
+5. Try enabling WhatsApp Web Beta in Settings → Help
+6. If still not working, try a different browser (Chrome, Edge, or Firefox)
+
+If none of these work, let me know and we can explore other solutions!"
+
+**ANSWER GUIDELINES:**
+
+For "how to" questions:
+- Brief intro addressing their situation
+- Clean numbered steps
+- Helpful closing
+
+For "can I" / "do I have to" questions:
+- Answer their concern FIRST (yes/no)
+- Then explain how/why
+- Provide steps if needed
+
+For "what is" questions:
+- Direct answer with key details
+- Offer to explain more
+
+For troubleshooting:
+- Acknowledge the problem
+- Provide solution with steps
+- Offer alternative if needed
+
+**KEY RULES:**
+
+✅ Understand context and adapt your answer
+✅ Be conversational and natural
+✅ Provide complete information
+✅ Use numbered lists for steps
+✅ End with helpful closing
+✅ **ALWAYS include URLs/links when they're in the content** - Use Markdown format: [text](url)
+
+❌ DON'T show your reasoning process
+❌ DON'T use labels like "REASONING:" or "ANSWER:"
+❌ DON'T be robotic ("I apologize", "Based on the provided content")
+❌ DON'T give template answers
+❌ DON'T say "visit the website" without providing the actual URL link
+
+**CRITICAL: URLS AND LINKS**
+- If the content mentions a URL, website, or link, ALWAYS include it in your answer
+- Format links as: [Link Text](https://actual-url.com)
+- Examples:
+  - "Visit [our website](https://example.com) to purchase"
+  - "Download from [this link](https://go.example.com/download)"
+  - "Install the extension: [Install Link](https://go.wawf.app/Install)"
+- NEVER say "visit the official website" without including the actual URL
+- If a purchase link exists, include it directly
+
+Just provide the final answer directly, without showing your thinking process.`;
 
     // Build conversation context if history exists
     let conversationContext = '';
     if (conversationHistory && conversationHistory.length > 0) {
-      conversationContext = '\n\nPREVIOUS CONVERSATION:\n';
-      conversationHistory.slice(-3).forEach((msg, idx) => {
-        conversationContext += `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}\n`;
+      conversationContext = '\n\nPrevious chat:\n';
+      conversationHistory.slice(-2).forEach((msg) => {
+        conversationContext += `${msg.role === 'user' ? 'Them' : 'You'}: ${msg.content.slice(0, 150)}\n`;
       });
-      conversationContext += '\n';
     }
 
-    const userPrompt = `Knowledge Base Content:
+    const userPrompt = `Content:
 ${docContext}
 ${conversationContext}
-Current User Query: "${query}"
 
-REASONING TASK:
+Question: "${query}"
 
-1. **ANALYZE THE QUESTION**:
-   - Is it vague/incomplete? → Ask clarifying questions
-   - Is it specific? → Answer directly
-   - Does it have multiple possible answers? → Present options and ask which applies
-   - Is it a follow-up? → Use conversation context
+Provide a helpful answer using SIMPLE, CLEAN formatting:
+- Use SIMPLE numbered steps (no nested bullets inside steps)
+- Each step should be ONE clear action
+- Include URLs as links: [text](url)
+- Keep it conversational and natural
+- Address their specific situation
 
-2. **EXAMPLES OF GOOD REASONING**:
-   
-   Vague: "I have an issue with my license key"
-   ❌ Bad: [Dumps all license solutions]
-   ✅ Good: "I can help with that! What's happening with your license? Are you seeing an error message, or is it not being recognized? Let me know and I'll guide you through the fix."
-   
-   Incomplete: "It's not working"
-   ❌ Bad: "Please provide more details"
-   ✅ Good: "Let me help you troubleshoot. What specifically isn't working? Are you:
-   • Unable to log in?
-   • Seeing an error message?
-   • Having trouble with a specific feature?
-   Tell me more and I'll help you fix it."
-   
-   Clear: "What's the monthly pricing?"
-   ✅ Good: "The monthly plan costs ₹249 + GST per month. [details]"
+IMPORTANT: Keep steps simple and direct:
+✅ GOOD: "1. Clear your browser cache from settings"
+❌ BAD: "1. Clear cache: Open settings, click clear data, restart"
 
-3. **YOUR REASONING PROCESS**:
-   
-   Step 1: ANALYZE THE QUESTION
-   - Is it vague or specific?
-   - Does it have multiple interpretations?
-   - What is the user REALLY trying to accomplish?
-   - Check conversation history for context
-   
-   Step 2: SEARCH THE CONTENT
-   - Find ALL relevant information
-   - Identify if there are multiple solutions/options
-   - Check for related information user might need
-   
-   Step 3: DECIDE YOUR APPROACH
-   - **If VAGUE**: Ask clarifying questions with examples from docs
-   - **If CLEAR**: Provide complete answer with all details
-   - **If MULTIPLE OPTIONS**: Present all options and ask which applies
-   - **If AMBIGUOUS**: Clarify what they mean before answering
-   - **If FOLLOW-UP**: Use conversation history to understand context
-   
-   Step 4: STRUCTURE YOUR RESPONSE
-   - Start with direct answer or clarifying question
-   - Use bullet points for options/features
-   - Use numbered lists for steps
-   - Bold important terms
-   - End with sources or follow-up offer
+Answer:`;
 
-4. **EXAMPLES OF GOOD REASONING**:
-
-   Example 1 - Vague Question:
-   User: "I have a problem"
-   ❌ Bad: "What's the problem?"
-   ✅ Good: "I'd be happy to help! Can you tell me more about what's happening? Common issues include:
-   • Login or authentication problems
-   • Feature not working as expected
-   • Error messages or crashes
-   • Installation or setup issues
-   Which one sounds closest to what you're experiencing?"
-
-   Example 2 - Ambiguous Question:
-   User: "What's the pricing?"
-   ❌ Bad: "The pricing is $X per month."
-   ✅ Good: "I found several pricing options:
-   • **Monthly Plan**: ₹249 + GST/month
-   • **Annual Plan**: ₹2,490 + GST/year (save 17%)
-   • **Enterprise**: Custom pricing
-   
-   Which plan are you interested in? Or would you like me to compare them?"
-
-   Example 3 - Follow-up with Context:
-   Previous: [Listed 3 pricing plans]
-   User: "Tell me more about the 2nd one"
-   ✅ Good: "Sure! The **Annual Plan** (₹2,490 + GST/year) includes:
-   • All features from monthly plan
-   • 17% savings compared to monthly
-   • Priority support
-   • [other features from docs]
-   
-   Would you like to know about the payment process?"
-
-5. **RESPOND**:
-   - Think through the reasoning process above
-   - Provide helpful, conversational response
-   - Ask questions when needed
-   - Guide them to the right solution
-   - Always cite sources at the end
-
-Your response:`;
-
-    // Use slightly higher temperature for more natural responses, reduced max tokens for speed
-    const llmOutput = await callLLM(systemPrompt, userPrompt, llmModel, 1024, llmProvider, 0.3, userApiKey);
+    // Reasoning-focused responses with balanced token limit
+    const llmStart = Date.now();
+    const llmOutput = await callLLM(systemPrompt, userPrompt, llmModel, 600, llmProvider, 0.4, userApiKey);
+    console.log(`⏱️ LLM generation: ${Date.now() - llmStart}ms`);
+    console.log(`⏱️ TOTAL TIME: ${Date.now() - startTime}ms`);
 
     // 6) Extract sources from documents only
     const sources = retrieved && retrieved.length > 0
@@ -818,16 +844,17 @@ Your response:`;
     const allText = retrieved ? retrieved.slice(0, 5).map(r => r.text).join(' ') : '';
     const persona = detectUserPersona(query, allText);
 
-    // 9) Generate suggested questions based on the answer and context
+    // 9) Skip suggested questions for speed (can enable later if needed)
     let suggestedQuestions = [];
-    try {
-      if (shouldSuggestQuestions(query, llmOutput.length)) {
-        const contextForSuggestions = docContext.slice(0, 1500);
-        suggestedQuestions = await generateSuggestedQuestions(contextForSuggestions, query, llmModel, llmProvider, userApiKey);
-      }
-    } catch (err) {
-      console.error('Failed to generate suggested questions:', err);
-    }
+    // Disabled for faster responses - uncomment to enable:
+    // try {
+    //   if (shouldSuggestQuestions(query, llmOutput.length)) {
+    //     const contextForSuggestions = docContext.slice(0, 1500);
+    //     suggestedQuestions = await generateSuggestedQuestions(contextForSuggestions, query, llmModel, llmProvider, userApiKey);
+    //   }
+    // } catch (err) {
+    //   console.error('Failed to generate suggested questions:', err);
+    // }
 
     return {
       answer: llmOutput,
