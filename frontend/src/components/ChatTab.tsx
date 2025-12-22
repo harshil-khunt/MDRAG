@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown'
 
 interface ChatTabProps {
   workspaceId: string
+  currentRole: string
 }
 
 interface ChatHistory {
@@ -17,7 +18,7 @@ interface ChatHistory {
   timestamp: string
 }
 
-const ChatTab = ({ workspaceId }: ChatTabProps) => {
+const ChatTab = ({ workspaceId, currentRole }: ChatTabProps) => {
   const [chatHistory, setChatHistory] = useState<ChatHistory[]>([])
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(false)
@@ -123,6 +124,16 @@ const ChatTab = ({ workspaceId }: ChatTabProps) => {
     setQuery(question)
   }
 
+  const getRoleDisplayName = (role: string) => {
+    const names: Record<string, string> = {
+      customer_service: 'Customer Service',
+      sales: 'Sales Representative',
+      technical_support: 'Technical Support',
+      custom: 'Custom'
+    }
+    return names[role] || 'Customer Service'
+  }
+
   return (
     <div className="space-y-4">
       <Card className="shadow-md" bodyStyle={{ padding: 0 }}>
@@ -130,9 +141,14 @@ const ChatTab = ({ workspaceId }: ChatTabProps) => {
           {/* Header with Clear button */}
           {chatHistory.length > 0 && (
             <div className="border-b bg-white px-4 py-2 flex justify-between items-center">
-              <span className="text-sm text-gray-600">
-                {chatHistory.length} message{chatHistory.length !== 1 ? 's' : ''}
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-gray-600">
+                  {chatHistory.length} message{chatHistory.length !== 1 ? 's' : ''}
+                </span>
+                <Tag color="blue" className="text-xs">
+                  {getRoleDisplayName(currentRole)}
+                </Tag>
+              </div>
               <Button
                 size="small"
                 danger

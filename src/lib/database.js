@@ -32,7 +32,7 @@ export async function connectDb() {
   return db;
 }
 
-export async function createWorkspace(id, name, owner, llmProvider = 'gemini', userApiKey = null) {
+export async function createWorkspace(id, name, owner, llmProvider = 'gemini', userApiKey = null, role = 'customer_service', customPrompt = null) {
   const database = await connectDb();
   const col = database.collection('workspaces');
   
@@ -58,6 +58,8 @@ export async function createWorkspace(id, name, owner, llmProvider = 'gemini', u
     name, 
     owner, 
     ...llmConfig,
+    chatbot_role: role, // customer_service, sales, technical_support, custom
+    custom_prompt: customPrompt, // null if using default role prompt
     created_at: new Date(),
     updated_at: new Date()
   };
@@ -517,4 +519,25 @@ export async function getWorkspaceDocuments(workspaceId) {
   
   const documents = await col.aggregate(pipeline).toArray();
   return documents;
+}
+
+/**
+ * Update workspace chatbot role and custom prompt
+ */
+export async function updateWorkspaceRole(workspaceId, role, customPrompt = null) {
+  const database = await connectDb();
+  const col = database.collection('workspaces');
+  
+  const result = await col.updateOne(
+    { id: workspaceId },
+    { 
+      $set: { 
+        chatbot_role: role,
+        custom_prompt: customPrompt,
+        updated_at: new Date()
+      } 
+    }
+  );
+  
+  return result.modifiedCount > 0;
 }

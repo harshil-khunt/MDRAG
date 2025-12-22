@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { Card, Button, Input, Modal, message, Empty, Spin, Radio, Space, Typography, Tag, Checkbox } from 'antd'
-import { PlusOutlined, FolderOpenOutlined, DeleteOutlined, RobotOutlined, ThunderboltOutlined, KeyOutlined } from '@ant-design/icons'
+import { PlusOutlined, FolderOpenOutlined, DeleteOutlined, RobotOutlined, ThunderboltOutlined, KeyOutlined, CustomerServiceOutlined, DollarOutlined, ToolOutlined, EditOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { workspaceApi, Workspace } from '../services/api'
 import { storageUtils } from '../utils/storage'
 
 const { Text, Paragraph } = Typography
+const { TextArea } = Input
 
 const WorkspaceList = () => {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
@@ -15,8 +16,38 @@ const WorkspaceList = () => {
   const [llmProvider, setLlmProvider] = useState<'gemini' | 'openai'>('gemini')
   const [useOwnApiKey, setUseOwnApiKey] = useState(false)
   const [userApiKey, setUserApiKey] = useState('')
+  const [chatbotRole, setChatbotRole] = useState<string>('customer_service')
+  const [customPrompt, setCustomPrompt] = useState('')
+  const [basePrompt, setBasePrompt] = useState('')
+  const [loadingPrompt, setLoadingPrompt] = useState(false)
   const [creating, setCreating] = useState(false)
   const navigate = useNavigate()
+
+  // Load base prompt when modal opens or role changes
+  useEffect(() => {
+    if (modalVisible) {
+      loadBasePrompt(chatbotRole)
+    }
+  }, [modalVisible, chatbotRole])
+
+  const loadBasePrompt = async (role: string) => {
+    setLoadingPrompt(true)
+    try {
+      // For custom role, load customer_service as default template
+      const roleToLoad = role === 'custom' ? 'customer_service' : role
+      const response = await workspaceApi.getDefaultPrompt(roleToLoad)
+      setBasePrompt(response.prompt)
+    } catch (error) {
+      console.error('Failed to load base prompt:', error)
+    } finally {
+      setLoadingPrompt(false)
+    }
+  }
+
+  const handleRoleChange = (newRole: string) => {
+    setChatbotRole(newRole)
+    setCustomPrompt('') // Clear custom prompt when switching roles
+  }
 
   useEffect(() => {
     loadWorkspaces()
@@ -57,13 +88,25 @@ const WorkspaceList = () => {
       return
     }
 
+    if (chatbotRole === 'custom' && !customPrompt.trim()) {
+      message.warning('Please enter a custom prompt or select a different role')
+      return
+    }
+
     setCreating(true)
     try {
+      // For predefined roles, save custom prompt only if user modified the base prompt
+      const promptToSave = chatbotRole === 'custom' 
+        ? customPrompt.trim() 
+        : (customPrompt.trim() && customPrompt.trim() !== basePrompt.trim() ? customPrompt.trim() : undefined)
+      
       const workspace = await workspaceApi.createWorkspace(
         newWorkspaceName, 
         llmProvider,
         'user-1',
-        useOwnApiKey ? userApiKey.trim() : undefined
+        useOwnApiKey ? userApiKey.trim() : undefined,
+        chatbotRole,
+        promptToSave
       )
       storageUtils.addWorkspace({
         id: workspace.id,
@@ -76,6 +119,8 @@ const WorkspaceList = () => {
       setLlmProvider('gemini')
       setUseOwnApiKey(false)
       setUserApiKey('')
+      setChatbotRole('customer_service')
+      setCustomPrompt('')
       loadWorkspaces()
     } catch (error: any) {
       message.error(error.response?.data?.detail || 'Failed to create workspace')
@@ -194,6 +239,8 @@ const WorkspaceList = () => {
           setLlmProvider('gemini')
           setUseOwnApiKey(false)
           setUserApiKey('')
+          setChatbotRole('customer_service')
+          setCustomPrompt('')
         }}
         confirmLoading={creating}
         okText="Create"
@@ -257,6 +304,132 @@ const WorkspaceList = () => {
                   </Radio>
                 </Card>
               </Space>
+            </Radio.Group>
+          </div>
+
+          <div className="mb-4">
+            <Text strong className="block mb-3">Chatbot Role</Text>
+            <Radio.Group 
+              value={chatbotRole} 
+              onChange={(e) => handleRoleChange(e.target.value)}
+              className="w-full"
+            >
+              <Space direction="vertical" className="w-full" size="middle">
+                <Card 
+                  className={`cursor-pointer transition-all ${chatbotRole === 'customer_service' ? 'border-blue-500 border-2 bg-blue-50' : 'hover:border-blue-300'}`}
+                  onClick={() => handleRoleChange('customer_service')}
+                >
+                  <Radio value="customer_service" className="w-full">
+                    <div className="flex items-start">
+                      <CustomerServiceOutlined className="text-2xl text-blue-600 mr-3 mt-1" />
+                      <div>
+                        <Text strong className="text-base">Customer Service</Text>
+                        <Paragraph className="mb-0 text-sm text-gray-600">
+                          Helpful, patient, problem-solving focused<br />
+                          <Text type="secondary" className="text-xs">Best for support, troubleshooting, and customer care</Text>
+                        </Paragraph>
+                      </div>
+                    </div>
+                  </Radio>
+                </Card>
+
+                <Card 
+                  className={`cursor-pointer transition-all ${chatbotRole === 'sales' ? 'border-green-500 border-2 bg-green-50' : 'hover:border-green-300'}`}
+                  onClick={() => handleRoleChange('sales')}
+                >
+                  <Radio value="sales" className="w-full">
+                    <div className="flex items-start">
+                      <DollarOutlined className="text-2xl text-green-600 mr-3 mt-1" />
+                      <div>
+                        <Text strong className="text-base">Sales Representative</Text>
+                        <Paragraph className="mb-0 text-sm text-gray-600">
+                          Persuasive, product-focused, conversion-oriented<br />
+                          <Text type="secondary" className="text-xs">Best for product info, pricing, and sales guidance</Text>
+                        </Paragraph>
+                      </div>
+                    </div>
+                  </Radio>
+                </Card>
+
+                <Card 
+                  className={`cursor-pointer transition-all ${chatbotRole === 'technical_support' ? 'border-purple-500 border-2 bg-purple-50' : 'hover:border-purple-300'}`}
+                  onClick={() => handleRoleChange('technical_support')}
+                >
+                  <Radio value="technical_support" className="w-full">
+                    <div className="flex items-start">
+                      <ToolOutlined className="text-2xl text-purple-600 mr-3 mt-1" />
+                      <div>
+                        <Text strong className="text-base">Technical Support</Text>
+                        <Paragraph className="mb-0 text-sm text-gray-600">
+                          Technical, detailed, troubleshooting focused<br />
+                          <Text type="secondary" className="text-xs">Best for technical docs, APIs, and developer support</Text>
+                        </Paragraph>
+                      </div>
+                    </div>
+                  </Radio>
+                </Card>
+
+                <Card 
+                  className={`cursor-pointer transition-all ${chatbotRole === 'custom' ? 'border-orange-500 border-2 bg-orange-50' : 'hover:border-orange-300'}`}
+                  onClick={() => handleRoleChange('custom')}
+                >
+                  <Radio value="custom" className="w-full">
+                    <div className="flex items-start">
+                      <EditOutlined className="text-2xl text-orange-600 mr-3 mt-1" />
+                      <div>
+                        <Text strong className="text-base">Custom</Text>
+                        <Paragraph className="mb-0 text-sm text-gray-600">
+                          Define your own chatbot personality and behavior<br />
+                          <Text type="secondary" className="text-xs">Write a custom system prompt below</Text>
+                        </Paragraph>
+                      </div>
+                    </div>
+                  </Radio>
+                </Card>
+              </Space>
+            {/* Base Prompt Display (for all roles) */}
+            <div className="mt-4">
+              <Text strong className="block mb-2">
+                {chatbotRole === 'custom' ? 'Custom Base Prompt' : `Base Prompt (Default for ${chatbotRole === 'customer_service' ? 'Customer Service' : chatbotRole === 'sales' ? 'Sales Representative' : 'Technical Support'})`}
+              </Text>
+              {loadingPrompt ? (
+                <div className="flex justify-center p-4">
+                  <Spin />
+                </div>
+              ) : (
+                <>
+                  <TextArea
+                    value={customPrompt || basePrompt}
+                    onChange={(e) => setCustomPrompt(e.target.value)}
+                    rows={6}
+                    className="font-mono text-sm"
+                    placeholder="Loading base prompt..."
+                  />
+                  <Text type="secondary" className="text-xs block mt-2">
+                    {chatbotRole === 'custom' 
+                      ? '💡 Define your chatbot\'s personality, tone, and behavior. You can use the default template above or write your own.'
+                      : '💡 This is the default prompt. You can edit it to customize, or leave as-is to use the default.'
+                    }
+                  </Text>
+                  {customPrompt && customPrompt !== basePrompt && (
+                    <div className="mt-2">
+                      <Button 
+                        size="small" 
+                        onClick={() => setCustomPrompt('')}
+                        type="link"
+                      >
+                        Reset to default
+                      </Button>
+                    </div>
+                  )}
+                  {chatbotRole === 'custom' && (
+                    <Text type="warning" className="text-xs block mt-2">
+                      ⚠️ Custom prompts require careful design. Poor prompts may affect answer quality.
+                    </Text>
+                  )}
+                </>
+              )}
+            </div>
             </Radio.Group>
           </div>
 

@@ -4,7 +4,7 @@ import multer from 'multer';
 import crypto from 'crypto';
 import { ObjectId } from 'mongodb';
 import { fileQueue, urlQueue, customTextQueue } from './queues/index.js';
-import { createWorkspace, listWorkspaces, getWorkspace, upsertTrackedSource, listTrackedSources, getChangeEvents, upsertQnA, getQnAs, deleteQnA, addCustomText, getCustomTexts, updateCustomText, deleteCustomText, getWorkspaceDocuments } from './lib/database.js';
+import { createWorkspace, listWorkspaces, getWorkspace, upsertTrackedSource, listTrackedSources, getChangeEvents, upsertQnA, getQnAs, deleteQnA, addCustomText, getCustomTexts, updateCustomText, deleteCustomText, getWorkspaceDocuments, updateWorkspaceRole } from './lib/database.js';
 import { fetchUrlBuffer } from './lib/scraper.js';
 import { getEmbeddings } from './lib/embeddings.js';
 import config from './config.js';
@@ -36,12 +36,24 @@ app.get('/', (req, res) => res.json({ status: 'ok' }));
 app.post('/workspaces', async (req, res) => {
   try {
     const id = crypto.randomUUID();
-    const { name, owner, llmProvider, userApiKey } = req.body;
+    const { name, owner, llmProvider, userApiKey, role, customPrompt } = req.body;
     
     // Validate llmProvider
     const provider = llmProvider === 'openai' ? 'openai' : 'gemini';
     
-    const doc = await createWorkspace(id, name || `ws-${id}`, owner || 'owner-1', provider, userApiKey);
+    // Validate role
+    const validRoles = ['customer_service', 'sales', 'technical_support', 'custom'];
+    const chatbotRole = validRoles.includes(role) ? role : 'customer_service';
+    
+    const doc = await createWorkspace(
+      id, 
+      name || `ws-${id}`, 
+      owner || 'owner-1', 
+      provider, 
+      userApiKey,
+      chatbotRole,
+      customPrompt
+    );
     res.status(201).json(doc);
   } catch (e) {
     console.error(e);
@@ -72,6 +84,50 @@ app.put('/workspaces/:id/api-key', async (req, res) => {
     } else {
       res.status(404).json({ error: 'Workspace not found' });
     }
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Update workspace role and custom prompt
+app.put('/workspaces/:id/role', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { role, customPrompt } = req.body;
+    
+    // Validate role
+    const validRoles = ['customer_service', 'sales', 'technical_support', 'custom'];
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+    
+    const updated = await updateWorkspaceRole(id, role, customPrompt);
+    
+    if (updated) {
+      res.json({ success: true, message: 'Chatbot role updated successfully' });
+    } else {
+      res.status(404).json({ error: 'Workspace not found' });
+    }
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get default prompt for a role
+app.get('/role-prompts/:role', async (req, res) => {
+  try {
+    const { role } = req.params;
+    const { getDefaultPromptForRole } = await import('./lib/rolePrompts.js');
+    
+    const validRoles = ['customer_service', 'sales', 'technical_support'];
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+    
+    const prompt = getDefaultPromptForRole(role);
+    res.json({ prompt });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });

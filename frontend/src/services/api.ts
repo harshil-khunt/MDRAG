@@ -16,6 +16,8 @@ export interface Workspace {
   llm_provider?: string
   llm_model?: string
   embedding_model?: string
+  chatbot_role?: string
+  custom_prompt?: string | null
   createdAt?: string
 }
 
@@ -75,12 +77,14 @@ export interface ChatMessage {
 
 export const workspaceApi = {
   // Create workspace
-  createWorkspace: async (name: string, llmProvider?: 'gemini' | 'openai', owner?: string, userApiKey?: string): Promise<Workspace> => {
+  createWorkspace: async (name: string, llmProvider?: 'gemini' | 'openai', owner?: string, userApiKey?: string, role?: string, customPrompt?: string): Promise<Workspace> => {
     const response = await api.post('/workspaces', { 
       name, 
       owner: owner || 'user-1',
       llmProvider: llmProvider || 'gemini',
-      userApiKey: userApiKey || undefined
+      userApiKey: userApiKey || undefined,
+      role: role || 'customer_service',
+      customPrompt: customPrompt || null
     })
     return response.data
   },
@@ -90,6 +94,21 @@ export const workspaceApi = {
     const response = await api.put(`/workspaces/${workspaceId}/api-key`, {
       userApiKey
     })
+    return response.data
+  },
+
+  // Update workspace role and custom prompt
+  updateWorkspaceRole: async (workspaceId: string, role: string, customPrompt?: string): Promise<any> => {
+    const response = await api.put(`/workspaces/${workspaceId}/role`, {
+      role,
+      customPrompt: customPrompt || null
+    })
+    return response.data
+  },
+
+  // Get default prompt for a role
+  getDefaultPrompt: async (role: string): Promise<{ prompt: string }> => {
+    const response = await api.get(`/role-prompts/${role}`)
     return response.data
   },
 

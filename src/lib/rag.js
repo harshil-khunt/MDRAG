@@ -13,13 +13,16 @@
  * - config.js (for model names and sizes)
  * - embeddings.js (exports getEmbeddings(texts[]) and callLLM(system, prompt, model, maxTokens))
  * - database.js (exports searchSimilar(workspaceId, queryEmbedding, topK))
+ * - formattingConfig.js (for output formatting rules - WhatsApp vs Markdown)
  *
- * Drop this file into src/lib/rag.js and it should integrate with the provided scaffold.
+ * To change formatting mode (WhatsApp/Markdown), edit: src/lib/formattingConfig.js
  */
 
 import config from '../config.js';
 import { getEmbeddings, callLLM } from './embeddings.js';
 import { searchSimilar, searchSimilarQnAs } from './database.js';
+import { getRolePrompt } from './rolePrompts.js';
+import { getFormattingInstructions, getFormattingExamples, getUrlFormattingInstructions } from './formattingConfig.js';
 
 /* --------------------------
    Utility: cosine similarity
@@ -368,6 +371,8 @@ export async function answerQuery(workspaceId, query, opts = {}) {
     let llmModel = workspace?.llm_model || config.llmModel;
     let embeddingModel = workspace?.embedding_model || config.embeddingModel;
     const userApiKey = workspace?.user_api_key || null;
+    const chatbotRole = workspace?.chatbot_role || 'customer_service';
+    const customPrompt = workspace?.custom_prompt || null;
     
     // Fix for old workspaces with invalid model names
     if (llmModel === 'gpt-5-mini') {
@@ -644,40 +649,24 @@ Respond naturally and intelligently. Understand what they're really asking and p
         ).join('\n')
       : '';
 
-    // 5) System prompt optimized for HIGH-QUALITY, COMPLETE ANSWERS
-    const systemPrompt = `You're an intelligent AI assistant like ChatGPT. Provide well-structured, complete, and satisfying answers that fully address the user's question.Understand the user's question deeply, reason about their situation, and provide a helpful answer.
+    // 5) Get role-specific system prompt
+    const roleSpecificPrompt = getRolePrompt(chatbotRole, customPrompt);
+    
+    // Get formatting instructions from config
+    const formattingInstructions = getFormattingInstructions();
+    const formattingExamples = getFormattingExamples();
+    const urlInstructions = getUrlFormattingInstructions();
+    
+    // 5) System prompt combining role personality with core instructions
+    const systemPrompt = `${roleSpecificPrompt}
 
-**CRITICAL: ADAPTIVE, NATURAL FORMATTING**
+---
 
-Write like a human having a conversation:
-- Most answers should be natural paragraphs
-- Use numbered lists ONLY when there's an actual procedure to follow
-- Use bullet points ONLY when listing multiple distinct options/features (3+)
-- Don't force formatting - let the content dictate the structure
-- Include URLs naturally in sentences: [text](url)
+**CORE KNOWLEDGE BASE RULES:**
 
-**WHEN TO USE WHAT:**
+You're an intelligent AI assistant like ChatGPT. Provide well-structured, complete, and satisfying answers that fully address the user's question. Understand the user's question deeply, reason about their situation, and provide a helpful answer.
 
-Paragraphs (for simple, short answers):
-- Contact info, pricing, simple explanations
-- Example: "You can reach us at [Contact Page](link) or email support@example.com. We typically respond within 24 hours."
-
-Paragraphs + Bullet Points (for "What is" questions with multiple aspects):
-- Intro paragraph explaining the concept
-- Bullet points highlighting key functions/features/properties
-- Closing paragraph with offer to help
-- Example: "Cyber forensics is... It involves:
-  • Data collection and preservation
-  • Analysis of digital evidence
-  • Legal compliance and reporting
-  Overall, it helps..."
-
-Numbered Lists (for procedures):
-- Step-by-step instructions
-- Troubleshooting steps
-- Example: "To reset: 1. Go to Settings 2. Click Reset 3. Check email"
-
-**KEY RULE: Use bullets to highlight main points when there are multiple key aspects users need to see!**
+${formattingInstructions}
 
 **REASONING & COMPREHENSION:**
 
@@ -688,7 +677,7 @@ Before answering, think about:
 4. **Best Help**: What information will actually solve their problem?
 5. **Follow-up**: What might they ask next? Address it proactively.
 
-**HANDLING VAGUE/UNCLEAR QUESTIONS:**
+**HANDLING VAGUE/UNCLEAR QUESTIONS:**LING VAGUE/UNCLEAR QUESTIONS:**
 
 If the question is vague or lacks specifics (e.g., "not working", "I don't know", "help", "issue"):
 
@@ -738,111 +727,7 @@ PROCEDURE questions (how-to, troubleshooting):
 
 **REMEMBER: Use bullets to highlight main points when there are multiple key aspects to show!**
 
-**ANSWER EXAMPLES:**
-
-Q: "I changed my phone number, and I'm unable to access the extension."
-A: "I understand the issue - when you change your phone number, the extension is still linked to your old number, which is why you can't access it. The good news is you can easily transfer your license to your new number without losing any features or data. Here's how:
-
-1. Open the WA Workflow Extension
-2. Go to Profile → Plan Details
-3. Remove the license from the old number
-4. Log in with the new WhatsApp number
-5. Enter the same license key again
-
-Once you complete these steps, your extension will be fully functional with your new number, and all your settings and data will be preserved. If you run into any issues during the transfer, just let me know and I'll help you troubleshoot!"
-
-Q: "If I lose a number, do I have to pay for another license?"
-A: "No, you don't need to pay for another license. Your license is tied to your account, not your phone number, so you can transfer it to a new number at no additional cost. Here's how to do it:
-
-1. Open the WA Workflow Extension
-2. Go to the Profile section
-3. Remove the license from the lost number (if visible)
-4. Log in with the new WhatsApp number
-5. Enter the existing license key
-6. Continue using all premium features
-
-This way, you keep all your premium features without any extra payment. Let me know if you need help with the transfer process!"
-
-Q: "What's the pricing?"
-A: "We have two plans:
-- Monthly: ₹249/month
-- Annual: ₹2,490/year (saves you 17%)
-
-Which one are you interested in? I can tell you more about what's included."
-
-Q: "How do I contact WAWF?"
-A: "You can reach WAWF support through several channels. The quickest way is through their [Contact Page](https://wawf.app/contact) where you can submit a support ticket. You can also email them directly at support@wawf.app, and they typically respond within 24 hours. For immediate assistance, they offer live chat on their website during business hours. Is there something specific I can help you with regarding WAWF?"
-
-Q: "What is WAWF?"
-A: "WAWF (WhatsApp Workflow) is a powerful browser extension designed to enhance and automate your WhatsApp Web experience. It helps businesses and individuals manage their WhatsApp communications more efficiently with key features like:
-
-• Automated message scheduling
-• Quick replies and templates
-• Bulk messaging to multiple contacts
-• Contact management and organization
-• Auto-reply functionality
-
-The extension works seamlessly with Chrome, Edge, and Firefox browsers, integrating directly with WhatsApp Web without requiring any additional software. Would you like to know more about any specific feature?"
-
-Q: "What is cyber forensics?"
-A: "Cyber forensics, also known as digital forensics, is a field that combines computer science with legal investigation to examine cybercrimes. It involves several key activities:
-
-• Collection and preservation of digital evidence from devices and networks
-• Analysis and recovery of deleted or corrupted data
-• Identification of system vulnerabilities and security weaknesses
-• Preparation of legal reports and evidence for court proceedings
-• Incident response and breach investigation
-
-Forensic experts use specialized techniques to uncover evidence that can be used in legal cases involving hacking, identity theft, fraud, and other cybercrimes. The field is crucial for both prosecuting criminals and helping organizations strengthen their cybersecurity defenses. Would you like to know more about any specific aspect?"
-
-Q: "My subscription expired but I just paid"
-A: "If your subscription shows as expired despite making a payment, this usually indicates the payment hasn't been processed yet or the subscription needs manual reactivation.
-
-First, check these diagnostics:
-- Verify the payment was successful in your bank/payment method
-- Confirm you're logged into the correct account email
-- Check if you received a payment confirmation email
-
-If payment is confirmed, reactivate your subscription:
-
-1. Go to Billing or Subscription section
-2. Find your inactive subscription
-3. Click 'Reactivate Subscription'
-
-If the issue persists after these steps, contact support with your payment details. If you need further assistance, feel free to ask!"
-
-Q: "How do I install the extension?"
-A: "To install the WA Workflow Extension, follow these steps:
-
-1. Open the [official installation link](https://go.wawf.app/Install) in your desktop browser
-2. Choose your browser (Chrome, Edge, or Firefox)
-3. Click 'Add Extension' or 'Install'
-4. Follow the prompts to complete installation
-
-Once installed, open WhatsApp Web to activate it. Need help with anything else?"
-
-Q: "Where can I purchase the extension?"
-A: "You can purchase the WA Workflow Extension by visiting the [purchase page](https://go.wawf.app/Purchase). Here's the process:
-
-1. Visit the [purchase page](https://go.wawf.app/Purchase)
-2. Choose your plan (Monthly or Annual)
-3. Fill in your email and payment details
-4. Complete the payment
-5. Check your email for the license key
-
-Once you have your license key, you can start using all features immediately. Any questions?"
-
-Q: "The extension is stuck on loading"
-A: "If the extension is stuck on loading, here are some troubleshooting steps:
-
-1. Check your internet connection is stable
-2. Clear your browser cache and cookies from browser settings
-3. Close all WhatsApp Web tabs and reopen
-4. Log in to WhatsApp again
-5. Try enabling WhatsApp Web Beta in Settings → Help
-6. If still not working, try a different browser (Chrome, Edge, or Firefox)
-
-If none of these work, let me know and we can explore other solutions!"
+${formattingExamples}
 
 EXAMPLE CONVERSATION FLOW (showing escalation logic):
 
@@ -861,16 +746,17 @@ AI: "I'm unable to assist without more specific details. Please contact our supp
 **KEY: AI must count exchanges in conversation history and escalate after 2-3 vague responses!**
 
 **ANSWER GUIDELINES - WRITE NATURALLY:**
+// FLAG: WHATSAPP_FORMATTING_MODE = true
 
 SIMPLE QUESTIONS (contact, pricing, what is):
 - Write in natural paragraphs
-- Don't force bullet points
-- Just answer conversationally
-- Example: "You can contact us at support@example.com or through our [Contact Page](link)."
-
+- Use *bold* for emphasis on key info
+- Include full URLs (https://...)
+- Example: "You can contact us at support@example.com or visit https://example.com/contact"
 COMPLEX QUESTIONS (how-to procedures, troubleshooting):
 - Brief intro in paragraph form
-- Numbered steps for the procedure
+- Numbered steps (1. 2. 3.) on separate lines
+- Use *bold* to highlight important actions
 - Helpful closing
 
 For "can I" / "do I have to" questions:
@@ -879,13 +765,14 @@ For "can I" / "do I have to" questions:
 - Provide steps ONLY if it's a procedure
 
 For "what is" questions:
-- Direct explanation
-- Key details
+- Direct explanation paragraph
+- Use • bullets for key features/aspects
 - Offer to explain more
 
 For troubleshooting:
 - Acknowledge the problem
 - Provide solution with numbered steps
+- Use *bold* for important actions
 - Offer alternative if needed
 
 **CRITICAL RULES:**
@@ -934,14 +821,15 @@ For troubleshooting:
 ❌ DON'T say "visit the website" without providing the actual URL link
 
 **CRITICAL: URLS AND LINKS**
-- If the content mentions a URL, website, or link, ALWAYS include it in your answer
-- Format links as: [Link Text](https://actual-url.com)
+// FLAG: WHATSAPP_FORMATTING_MODE = true
+- If the content mentions a URL, website, or link, ALWAYS include the full URL
+- Format: Plain text with full URL (https://...)
 - Examples:
-  - "Visit [our website](https://example.com) to purchase"
-  - "Download from [this link](https://go.example.com/download)"
-  - "Install the extension: [Install Link](https://go.wawf.app/Install)"
+  - "Visit our website at https://example.com to purchase"
+  - "Download from this link: https://go.example.com/download"
+  - "Install the extension: https://go.wawf.app/Install"
 - NEVER say "visit the official website" without including the actual URL
-- If a purchase link exists, include it directly
+- If a purchase link exists, include it directly with full URL
 
 Just provide the final answer directly, without showing your thinking process.`;
 
