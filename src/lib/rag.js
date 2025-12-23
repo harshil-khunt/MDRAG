@@ -235,8 +235,8 @@ SOURCE REQUIREMENTS
     - QnA entries
     - User-provided text during the conversation
 19. If user-provided text contains the needed information, it must be treated as a valid source.
-20. End every answer with a "Sources:" section listing only the document names actually used or state “User-provided text” when applicable.
-21. If no documents were used due to lack of information, do not include a Sources section.
+20. **CRITICAL: Do NOT add a Sources section to your answer. The system adds sources automatically.**
+21. Just provide the answer text. Do not list sources, documents, or references in your response.
 
 ----------------------------------------------------------------------
 BEHAVIOR RESTRICTIONS
@@ -293,7 +293,7 @@ Answer:`;
    Top-level FAST single-pass RAG function
    -------------------------- */
 export async function answerQuery(workspaceId, query, opts = {}) {
-  const topK = opts.topK ?? 10; // Reduced to 10 for maximum speed
+  const topK = opts.topK ?? 30; // Retrieve more chunks for better context
   const conversationHistory = opts.conversationHistory || []; // Previous messages for context
 
   try {
@@ -677,35 +677,57 @@ Before answering, think about:
 4. **Best Help**: What information will actually solve their problem?
 5. **Follow-up**: What might they ask next? Address it proactively.
 
-**HANDLING VAGUE/UNCLEAR QUESTIONS:**LING VAGUE/UNCLEAR QUESTIONS:**
+**HANDLING VAGUE/UNCLEAR QUESTIONS:**
 
-If the question is vague or lacks specifics (e.g., "not working", "I don't know", "help", "issue"):
+Use your intelligence to determine if a question is truly vague or actually clear:
 
-**FIRST TIME vague:**
-- Be honest: "I don't have enough details to help you properly"
-- Ask naturally what specifically they need help with
-- Don't list options - ask them to explain in their own words
+**Truly VAGUE** = Question provides no context about what the user wants:
+- No subject or topic mentioned
+- No clear intent or goal
+- Impossible to know what they're asking about
 
-**SECOND TIME vague (check conversation history):**
-- Politely explain you need more specific information
-- Give 1-2 examples of what details would help
-- Encourage them to describe the problem
+**Actually CLEAR** = Question has a specific subject, topic, or intent:
+- Mentions what they want to know about (even if brief)
+- Has a clear subject (contact, price, feature, product, etc.)
+- You can understand what they're asking for
 
-**THIRD TIME vague or still unclear:**
-- Acknowledge you're unable to assist without more details
-- Escalate to human support professionally
-- "I'm unable to provide specific guidance without more details. Please contact our support team at [contact info] and they'll assist you within 24 hours."
+**Key principle:** If you can understand WHAT they're asking about, it's CLEAR. Only if you truly don't know what topic they're asking about, it's VAGUE.
 
-**CRITICAL: Don't copy example phrases - generate natural, contextual responses!**
+**For VAGUE questions (rare):**
+- First time: Ask what specifically they need help with
+- Second time: Give examples of helpful details
+- Third time: Escalate to support
+
+**For CLEAR questions (most questions):**
+- Search your documents thoroughly
+- If you have complete information: Provide a full, detailed answer with ALL the details
+- If you have NO information or INCOMPLETE information: Say honestly "I don't have information about [specific topic] in the uploaded documents."
+- Don't try to piece together partial answers or make assumptions
+- Be honest about what you don't know
+
+**CRITICAL: Trust your intelligence! Most questions are clear enough to answer or say "no info available". Only escalate if truly impossible to understand what they're asking.**
 
 **ANSWER QUALITY PRINCIPLES:**
 
-1. **BE COMPLETE**: Include ALL relevant information from the content
+1. **BE COMPLETE**: Include ALL relevant information from the content - no half answers!
 2. **BE CLEAR**: Structure your answer logically and easy to follow
 3. **BE HELPFUL**: Anticipate follow-up questions and address them
 4. **BE NATURAL**: Write like ChatGPT - conversational but professional
-5. **BE SPECIFIC**: Include actual details (URLs, prices, names) not vague references
+5. **BE SPECIFIC**: Include actual details (URLs, prices, names, emails, phone numbers) not vague references
 6. **REASON WITH USER**: Show understanding of their situation in your answer
+7. **BE HONEST**: If you don't have complete information, say so clearly - don't give half answers
+
+**CRITICAL: No half answers! Either provide COMPLETE information or say you don't have it.**
+
+Examples of BAD half answers:
+- ❌ "The document mentions support access" (HOW? WHERE?)
+- ❌ "Based on the information I have..." (then stops)
+- ❌ "The documentation mentions..." (WHAT does it mention?)
+
+Examples of GOOD complete answers:
+- ✅ "You can contact support at support@example.com or call 1-800-123-4567"
+- ✅ "I don't have contact information for WAWF support in the uploaded documents"
+- ✅ "To access support, click the Help button in the extension and select 'Contact Support'"
 
 **HOW TO STRUCTURE ANSWERS (ADAPT TO CONTENT):**
 
@@ -819,6 +841,12 @@ For troubleshooting:
 ❌ DON'T be robotic ("I apologize", "Based on the provided content")
 ❌ DON'T give template answers
 ❌ DON'T say "visit the website" without providing the actual URL link
+❌ DON'T start sentences with "While the provided information mentions..." or "Based on the information I have..."
+❌ DON'T give incomplete answers that trail off mid-sentence
+
+✅ DO give complete answers with all details
+✅ DO say honestly when you don't have information
+✅ DO be direct and clear
 
 **CRITICAL: URLS AND LINKS**
 // FLAG: WHATSAPP_FORMATTING_MODE = true
@@ -850,31 +878,49 @@ ${conversationContext}
 
 Question: "${query}"
 
+Analyze this question intelligently:
 
-CHECK: Is this question clear and specific, or vague?
+1. **Understand the intent**: What is the user trying to find out?
+   - Use your reasoning to understand their goal
+   - Consider the context and what they're asking about
 
-VAGUE questions (lacks details, unclear, too short):
-- Look at exchange count above
-- If 3+ exchanges and still vague → ESCALATE IMMEDIATELY
-- Response based on count:
-  * 1-2 exchanges: "I don't have enough details. Could you explain what you need help with?"
-  * 3+ exchanges: "I'm unable to assist without more specific details. Please contact our support team at [contact from context] for personalized help. They'll respond within 24 hours."
-- CRITICAL: After 3 exchanges, MUST escalate - don't keep asking!
+2. **Determine if answerable**:
+   - Can you understand what they're asking about? → It's CLEAR
+   - Is there literally no topic or subject? → It's VAGUE
 
-CLEAR questions - Understand type and adapt:
-- Simple question (contact, pricing) → Paragraphs only
-- "What is" with multiple aspects → Intro + bullet points + closing
-- Procedure (how-to) → Intro + numbered steps + closing
-- Billing/access issues → Context mirror + diagnostics + steps
+3. **Respond appropriately**:
 
-Provide a natural, complete answer:
-- Write in your own words, don't copy examples
-- Use bullets to highlight key points when needed
-- Use numbered steps for procedures
-- Include ALL relevant details from context only
-- Track conversation and escalate if needed
+   **If CLEAR (you understand what they want):**
+   - Search the content above for relevant information
+   - Check if you have COMPLETE information to fully answer the question
+   
+   **CRITICAL DECISION:**
+   - If you have COMPLETE info (all details needed): Provide a full answer
+   - If you have INCOMPLETE info (missing key details): Say "I don't have complete information about [topic] in the uploaded documents."
+   - If you have NO info: Say "I don't have information about [topic] in the uploaded documents."
+   
+   **NEVER do this:**
+   - ❌ "While the provided information mentions..." (and stop)
+   - ❌ "Based on the information I have..." (and stop)
+   - ❌ "The document mentions..." (without saying what)
+   - ❌ Starting an answer you can't complete
+   
+   **ALWAYS do this:**
+   - ✅ Give complete answer with all specifics
+   - ✅ OR say honestly you don't have the information
+   - ✅ Make a clear choice: answer fully or say you can't
 
-Be natural and contextual!
+   **If TRULY VAGUE (you genuinely can't tell what they want):**
+   - Check conversation history exchange count above
+   - If 1-2 exchanges: Ask what they need help with
+   - If 3+ exchanges: Escalate to support
+
+4. **Answer structure** (adapt to content):
+   - Contact/pricing questions: Natural paragraphs
+   - Feature questions: Intro + bullets + closing
+   - How-to questions: Intro + numbered steps + closing
+
+Use your intelligence and reasoning. Don't rely on keyword matching. Understand the user's actual intent.
 
 Answer:`;
 

@@ -48,15 +48,15 @@ export async function processFileJob({ tempPath, filename, workspaceId }) {
   }
   const chunks = chunkText(text);
   // create embeddings in batches to respect rate limits
-  const batchSize = 32; // Increased from 16 to 32 for faster processing
+  const batchSize = 50; // Increased to 50 for faster processing
   const embeddings = [];
   for (let i = 0; i < chunks.length; i += batchSize) {
     const slice = chunks.slice(i, i + batchSize);
     const embs = await getEmbeddings(slice, embeddingModel, llmProvider, userApiKey);
     embeddings.push(...embs);
-    // Add delay between batches to avoid rate limits
+    // Reduced delay for faster processing
     if (i + batchSize < chunks.length) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
   }
   await insertChunks(workspaceId, filename, chunks, embeddings);
@@ -111,43 +111,50 @@ export async function processUrlJob({ url, workspaceId, name, crawlDomain: shoul
       await recordChangeEvent(workspaceId, url, oldHash, newHash, `Domain crawled: ${pages.length} pages`);
     }
     
-    // Process each page separately
+    // Process pages in parallel batches for much faster embedding
     let totalChunks = 0;
-    let processedPages = 0;
+    const PAGE_BATCH_SIZE = 5; // Process 5 pages simultaneously
     
-    for (const page of pages) {
-      const text = page.text;
-      if (!text || text.length < 10) continue;
+    console.log(`Processing ${pages.length} pages in parallel batches of ${PAGE_BATCH_SIZE}`);
+    
+    for (let batchStart = 0; batchStart < pages.length; batchStart += PAGE_BATCH_SIZE) {
+      const pageBatch = pages.slice(batchStart, batchStart + PAGE_BATCH_SIZE);
       
-      let chunks = chunkText(text);
-      
-      // Deduplicate chunks before embedding
-      const originalChunkCount = chunks.length;
-      chunks = deduplicateChunks(chunks);
-      const deduplicatedCount = originalChunkCount - chunks.length;
-      
-      if (deduplicatedCount > 0) {
-        console.log(`Deduplicated ${deduplicatedCount} chunks from ${page.url}`);
-      }
-      
-      totalChunks += chunks.length;
-      const batchSize = 32; // Increased from 16 to 32 for faster processing
-      const embeddings = [];
-      
-      for (let i = 0; i < chunks.length; i += batchSize) {
-        const slice = chunks.slice(i, i + batchSize);
-        const embs = await getEmbeddings(slice, embeddingModel, llmProvider, userApiKey);
-        embeddings.push(...embs);
+      // Process all pages in this batch simultaneously
+      await Promise.all(pageBatch.map(async (page, batchIndex) => {
+        const pageNum = batchStart + batchIndex + 1;
+        const text = page.text;
+        if (!text || text.length < 10) return;
         
-        // Add delay between batches to avoid rate limits
-        if (i + batchSize < chunks.length) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
+        let chunks = chunkText(text);
+        
+        // Deduplicate chunks before embedding
+        const originalChunkCount = chunks.length;
+        chunks = deduplicateChunks(chunks);
+        const deduplicatedCount = originalChunkCount - chunks.length;
+        
+        if (deduplicatedCount > 0) {
+          console.log(`Deduplicated ${deduplicatedCount} chunks from ${page.url}`);
         }
-      }
-      
-      await insertChunks(workspaceId, page.url, chunks, embeddings);
-      processedPages++;
-      console.log(`Processed page ${processedPages}/${pages.length}: ${page.url} (${chunks.length} chunks)`);
+        
+        totalChunks += chunks.length;
+        const batchSize = 50; // Increased to 50 for faster processing
+        const embeddings = [];
+        
+        for (let i = 0; i < chunks.length; i += batchSize) {
+          const slice = chunks.slice(i, i + batchSize);
+          const embs = await getEmbeddings(slice, embeddingModel, llmProvider, userApiKey);
+          embeddings.push(...embs);
+          
+          // Reduced delay for faster processing
+          if (i + batchSize < chunks.length) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
+        }
+        
+        await insertChunks(workspaceId, page.url, chunks, embeddings);
+        console.log(`Processed page ${pageNum}/${pages.length}: ${page.url} (${chunks.length} chunks)`);
+      }));
     }
     
     // Update crawl status
@@ -190,16 +197,16 @@ export async function processUrlJob({ url, workspaceId, name, crawlDomain: shoul
       console.log(`Deduplicated ${deduplicatedCount} chunks`);
     }
     
-    const batchSize = 32; // Increased from 16 to 32 for faster processing
+    const batchSize = 50; // Increased to 50 for faster processing
     const embeddings = [];
     for (let i = 0; i < chunks.length; i += batchSize) {
       const slice = chunks.slice(i, i + batchSize);
       const embs = await getEmbeddings(slice, embeddingModel, llmProvider, userApiKey);
       embeddings.push(...embs);
       
-      // Add delay between batches to avoid rate limits (reduced from 1000ms to 500ms)
+      // Reduced delay for faster processing
       if (i + batchSize < chunks.length) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
     }
     await insertChunks(workspaceId, name || url, chunks, embeddings);
@@ -254,7 +261,7 @@ export async function processCustomTextJob({ workspaceId, textId, title, content
   }
   
   // Create embeddings in batches
-  const batchSize = 32; // Increased from 16 to 32 for faster processing
+  const batchSize = 50; // Increased to 50 for faster processing
   const embeddings = [];
   
   for (let i = 0; i < chunks.length; i += batchSize) {
@@ -262,9 +269,9 @@ export async function processCustomTextJob({ workspaceId, textId, title, content
     const embs = await getEmbeddings(slice, embeddingModel, llmProvider, userApiKey);
     embeddings.push(...embs);
     
-    // Add delay between batches to avoid rate limits
+    // Reduced delay for faster processing
     if (i + batchSize < chunks.length) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
   }
   

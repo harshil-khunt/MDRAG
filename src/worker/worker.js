@@ -12,10 +12,34 @@ const fileWorker = new Worker('process-file', async job => {
   console.log(`\n🔄 Processing file job ${job.id}`);
   console.log(`   File: ${job.data.filename}`);
   console.log(`   Workspace: ${job.data.workspaceId}`);
+  
+  // Update job status to processing
+  const { updateJobProgress } = await import('../lib/database.js');
+  await updateJobProgress(job.id.toString(), 
+    { current: 0, total: 100, message: 'Starting file processing...' },
+    'processing'
+  );
+  
   try {
-    await processFileJob(job.data);
+    await processFileJob(job.data, async (progress) => {
+      // Progress callback from job processor
+      await updateJobProgress(job.id.toString(), progress);
+    });
+    
+    // Mark as completed
+    await updateJobProgress(job.id.toString(),
+      { current: 100, total: 100, message: 'Completed successfully!' },
+      'completed'
+    );
+    
     console.log(`✅ File job ${job.id} completed successfully`);
   } catch (error) {
+    // Mark as failed
+    await updateJobProgress(job.id.toString(),
+      { current: 0, total: 100, message: `Failed: ${error.message}` },
+      'failed'
+    );
+    
     console.error(`❌ File job ${job.id} failed:`, error.message);
     throw error;
   }
@@ -24,10 +48,34 @@ const fileWorker = new Worker('process-file', async job => {
 const urlWorker = new Worker('process-url', async job => {
   console.log(`\n🔄 Processing URL job ${job.id}`);
   console.log(`   URL: ${job.data.url}`);
+  
+  // Update job status to processing
+  const { updateJobProgress } = await import('../lib/database.js');
+  await updateJobProgress(job.id.toString(),
+    { current: 0, total: 100, message: 'Starting URL crawl...' },
+    'processing'
+  );
+  
   try {
-    await processUrlJob(job.data);
+    await processUrlJob(job.data, async (progress) => {
+      // Progress callback from job processor
+      await updateJobProgress(job.id.toString(), progress);
+    });
+    
+    // Mark as completed
+    await updateJobProgress(job.id.toString(),
+      { current: 100, total: 100, message: 'Completed successfully!' },
+      'completed'
+    );
+    
     console.log(`✅ URL job ${job.id} completed successfully`);
   } catch (error) {
+    // Mark as failed
+    await updateJobProgress(job.id.toString(),
+      { current: 0, total: 100, message: `Failed: ${error.message}` },
+      'failed'
+    );
+    
     console.error(`❌ URL job ${job.id} failed:`, error.message);
     throw error;
   }

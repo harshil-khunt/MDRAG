@@ -150,8 +150,18 @@ app.post('/workspaces/:id/upload/file', upload.single('file'), async (req, res) 
       workspaceId: ws 
     });
     
+    // Create job tracking entry
+    const { createJobTracking } = await import('./lib/database.js');
+    await createJobTracking(ws, job.id.toString(), 'file', file.originalname, {
+      size: file.size,
+      mimetype: file.mimetype
+    });
+    
     console.log(`✅ Job enqueued with ID: ${job.id}`);
-    res.status(202).json({ message: `enqueued ${file.originalname}` });
+    res.status(202).json({ 
+      message: `enqueued ${file.originalname}`,
+      jobId: job.id.toString()
+    });
   } catch (e) {
     console.error('❌ Error enqueueing file:', e);
     res.status(500).json({ error: e.message });
@@ -175,7 +185,7 @@ app.post('/workspaces/:id/upload/url', async (req, res) => {
     }
 
     // Enqueue initial crawl
-    await urlQueue.add('process-url-job', { 
+    const job = await urlQueue.add('process-url-job', { 
       url, 
       workspaceId: ws, 
       name,
@@ -183,8 +193,17 @@ app.post('/workspaces/:id/upload/url', async (req, res) => {
       enableOcr
     });
     
+    // Create job tracking entry
+    const { createJobTracking } = await import('./lib/database.js');
+    await createJobTracking(ws, job.id.toString(), 'url', url, {
+      trackChanges,
+      enableOcr,
+      scheduleMinutes: scheduleMinutes || 60
+    });
+    
     res.status(202).json({ 
       message: 'url enqueued',
+      jobId: job.id.toString(),
       tracking: trackChanges ? 'enabled' : 'disabled',
       ocr: enableOcr ? 'enabled' : 'disabled'
     });
@@ -200,6 +219,46 @@ app.get('/workspaces/:id/documents', async (req, res) => {
     const ws = req.params.id;
     const documents = await getWorkspaceDocuments(ws);
     res.json({ documents, total_documents: documents.length });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Delete a document (remove all its chunks)
+app.delete('/workspaces/:id/documents/:sourceName', async (req, res) => {
+  try {
+    const ws = req.params.id;
+    const sourceName = decodeURIComponent(req.params.sourceName);
+    
+    console.log(`🗑️ Deleting document: ${sourceName} from workspace ${ws}`);
+    
+    const { connectDb } = await import('./lib/database.js');
+    const database = await connectDb();
+    const col = database.collection(`ws_${ws}_chunks`);
+    
+    const result = await col.deleteMany({ source_name: sourceName });
+    
+    console.log(`✅ Deleted ${result.deletedCount} chunks for ${sourceName}`);
+    
+    res.json({ 
+      success: true, 
+      message: `Deleted ${result.deletedCount} chunks`,
+      deletedCount: result.deletedCount
+    });
+  } catch (e) {
+    console.error('Delete error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get job status for a workspace (active + recent jobs)
+app.get('/workspaces/:id/jobs', async (req, res) => {
+  try {
+    const ws = req.params.id;
+    const { getAllJobs } = await import('./lib/database.js');
+    const jobs = await getAllJobs(ws);
+    res.json(jobs);
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });

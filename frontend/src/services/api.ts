@@ -198,6 +198,12 @@ export const workspaceApi = {
     return response.data
   },
 
+  // Delete a document (remove all its chunks)
+  deleteDocument: async (workspaceId: string, sourceName: string): Promise<any> => {
+    const response = await api.delete(`/workspaces/${workspaceId}/documents/${encodeURIComponent(sourceName)}`)
+    return response.data
+  },
+
   // Get tracked sources
   getTrackedSources: async (workspaceId: string): Promise<TrackedSource[]> => {
     const response = await api.get(`/workspaces/${workspaceId}/sources`)

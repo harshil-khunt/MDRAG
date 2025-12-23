@@ -203,13 +203,16 @@ export function cleanText(text) {
 
 /**
  * Deduplicate chunks based on content similarity
+ * Less aggressive - only remove truly identical chunks
  */
 export function deduplicateChunks(chunks) {
   const seen = new Set();
   const unique = [];
   
   for (const chunk of chunks) {
-    const signature = chunk.slice(0, 200).toLowerCase().replace(/\s+/g, ' ');
+    // Use more of the chunk for signature (500 chars instead of 200)
+    // This prevents removing chunks that start similarly but have different content
+    const signature = chunk.slice(0, 500).toLowerCase().replace(/\s+/g, ' ');
     
     if (!seen.has(signature) && chunk.length >= 100) {
       seen.add(signature);
@@ -217,6 +220,7 @@ export function deduplicateChunks(chunks) {
     }
   }
   
-  console.log(`Deduplication: ${chunks.length} → ${unique.length} chunks (${Math.round((1 - unique.length/chunks.length) * 100)}% reduction)`);
+  const reductionPercent = chunks.length > 0 ? Math.round((1 - unique.length/chunks.length) * 100) : 0;
+  console.log(`Deduplication: ${chunks.length} → ${unique.length} chunks (${reductionPercent}% reduction)`);
   return unique;
 }

@@ -225,10 +225,18 @@ export async function crawlDomain(startUrl, maxPages = 100, maxDepth = 3, enable
     const skippedCount = sitemapUrls.length - filteredUrls.length;
     console.log(`Filtered out ${skippedCount} low-value URLs. Processing ${filteredUrls.length} URLs.`);
     
-    for (let i = 0; i < filteredUrls.length; i++) {
-      const url = filteredUrls[i];
-      try {
-        console.log(`Fetching [${i + 1}/${filteredUrls.length}]: ${url}`);
+    // Process URLs in parallel batches for much faster crawling
+    const PARALLEL_BATCH_SIZE = 10; // Process 10 URLs simultaneously
+    
+    for (let batchStart = 0; batchStart < filteredUrls.length; batchStart += PARALLEL_BATCH_SIZE) {
+      const batch = filteredUrls.slice(batchStart, batchStart + PARALLEL_BATCH_SIZE);
+      console.log(`Processing batch ${Math.floor(batchStart / PARALLEL_BATCH_SIZE) + 1}/${Math.ceil(filteredUrls.length / PARALLEL_BATCH_SIZE)} (${batch.length} URLs in parallel)`);
+      
+      // Process all URLs in this batch simultaneously
+      await Promise.all(batch.map(async (url, batchIndex) => {
+        const i = batchStart + batchIndex;
+        try {
+          console.log(`Fetching [${i + 1}/${filteredUrls.length}]: ${url}`);
         
         const { buffer, contentType } = await fetchUrlBuffer(url);
         
@@ -241,14 +249,14 @@ export async function crawlDomain(startUrl, maxPages = 100, maxDepth = 3, enable
           text = cleanText(text);
           if (!isSubstantialContent(text)) {
             console.log(`Skipping ${url} - insufficient content`);
-            continue;
+            return; // Changed from continue to return (inside Promise.all callback)
           }
           
           // Check for duplicate content
           const contentHash = hashContent(text);
           if (seenHashes.has(contentHash)) {
             console.log(`Skipping ${url} - duplicate content`);
-            continue;
+            return; // Changed from continue to return (inside Promise.all callback)
           }
           seenHashes.add(contentHash);
           
@@ -275,13 +283,13 @@ export async function crawlDomain(startUrl, maxPages = 100, maxDepth = 3, enable
           
           if (!isSubstantialContent(text)) {
             console.log(`Skipping ${url} - insufficient content`);
-            continue;
+            return; // Changed from continue to return (inside Promise.all callback)
           }
           
           const contentHash = hashContent(text);
           if (seenHashes.has(contentHash)) {
             console.log(`Skipping ${url} - duplicate content`);
-            continue;
+            return; // Changed from continue to return (inside Promise.all callback)
           }
           seenHashes.add(contentHash);
         }
@@ -290,10 +298,15 @@ export async function crawlDomain(startUrl, maxPages = 100, maxDepth = 3, enable
           results.push({ url, text });
         }
         
-        // Small delay to be respectful (reduced from 300ms to 100ms)
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // No delay needed - parallel processing handles rate limiting naturally
       } catch (error) {
         console.error(`Failed to fetch ${url}:`, error.message);
+      }
+      }));
+      
+      // Small delay between batches to avoid overwhelming the server
+      if (batchStart + PARALLEL_BATCH_SIZE < filteredUrls.length) {
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
     }
     
@@ -306,7 +319,7 @@ export async function crawlDomain(startUrl, maxPages = 100, maxDepth = 3, enable
 
   const crawler = new CheerioCrawler({
     maxRequestsPerCrawl: maxPages,
-    maxConcurrency: 5, // Increased from 2 to 5 for faster crawling
+    maxConcurrency: 20, // Increased to 20 for much faster crawling
     requestHandlerTimeoutSecs: 15, // Reduced from 30 to 15 seconds
     
     async requestHandler({ request, $, enqueueLinks }) {

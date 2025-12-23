@@ -541,3 +541,156 @@ export async function updateWorkspaceRole(workspaceId, role, customPrompt = null
   
   return result.modifiedCount > 0;
 }
+
+/**
+ * ========================================
+ * JOB TRACKING FUNCTIONS
+ * Track upload/crawl job progress in real-time
+ * ========================================
+ */
+
+/**
+ * Create a new job tracking entry
+ * @param {string} workspaceId - Workspace ID
+ * @param {string} jobId - BullMQ job ID
+ * @param {string} type - 'file' | 'url' | 'custom_text'
+ * @param {string} name - File name or URL
+ * @param {object} metadata - Additional metadata (file size, URL count, etc.)
+ */
+export async function createJobTracking(workspaceId, jobId, type, name, metadata = {}) {
+  const database = await connectDb();
+  const col = database.collection('job_tracking');
+  
+  const doc = {
+    workspaceId,
+    jobId,
+    type, // 'file', 'url', 'custom_text'
+    name,
+    status: 'queued', // queued, processing, completed, failed
+    progress: {
+      current: 0,
+      total: metadata.total || 0,
+      percentage: 0,
+      message: 'Queued for processing...'
+    },
+    metadata,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    startedAt: null,
+    completedAt: null
+  };
+  
+  await col.insertOne(doc);
+  return doc;
+}
+
+/**
+ * Update job progress
+ * @param {string} jobId - BullMQ job ID
+ * @param {object} progress - Progress update { current, total, message }
+ * @param {string} status - Optional status update
+ */
+export async function updateJobProgress(jobId, progress, status = null) {
+  const database = await connectDb();
+  const col = database.collection('job_tracking');
+  
+  const update = {
+    $set: {
+      updatedAt: new Date()
+    }
+  };
+  
+  if (progress) {
+    const percentage = progress.total > 0 
+      ? Math.round((progress.current / progress.total) * 100)
+      : 0;
+    
+    update.$set.progress = {
+      current: progress.current || 0,
+      total: progress.total || 0,
+      percentage,
+      message: progress.message || 'Processing...'
+    };
+  }
+  
+  if (status) {
+    update.$set.status = status;
+    
+    if (status === 'processing' && !update.$set.startedAt) {
+      update.$set.startedAt = new Date();
+    }
+    
+    if (status === 'completed' || status === 'failed') {
+      update.$set.completedAt = new Date();
+    }
+  }
+  
+  await col.updateOne({ jobId }, update);
+}
+
+/**
+ * Get all active jobs for a workspace
+ * @param {string} workspaceId - Workspace ID
+ * @returns {Array} Active jobs (queued or processing)
+ */
+export async function getActiveJobs(workspaceId) {
+  const database = await connectDb();
+  const col = database.collection('job_tracking');
+  
+  return col.find({
+    workspaceId,
+    status: { $in: ['queued', 'processing'] }
+  })
+  .sort({ createdAt: -1 })
+  .toArray();
+}
+
+/**
+ * Get recent completed jobs for a workspace
+ * @param {string} workspaceId - Workspace ID
+ * @param {number} limit - Number of jobs to return
+ * @returns {Array} Recent completed/failed jobs
+ */
+export async function getRecentJobs(workspaceId, limit = 10) {
+  const database = await connectDb();
+  const col = database.collection('job_tracking');
+  
+  return col.find({
+    workspaceId,
+    status: { $in: ['completed', 'failed'] }
+  })
+  .sort({ completedAt: -1 })
+  .limit(limit)
+  .toArray();
+}
+
+/**
+ * Get all jobs for a workspace (active + recent)
+ * @param {string} workspaceId - Workspace ID
+ * @returns {object} { active: [], recent: [] }
+ */
+export async function getAllJobs(workspaceId) {
+  const [active, recent] = await Promise.all([
+    getActiveJobs(workspaceId),
+    getRecentJobs(workspaceId, 20)
+  ]);
+  
+  return { active, recent };
+}
+
+/**
+ * Clean up old completed jobs (older than 24 hours)
+ */
+export async function cleanupOldJobs() {
+  const database = await connectDb();
+  const col = database.collection('job_tracking');
+  
+  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  
+  const result = await col.deleteMany({
+    status: { $in: ['completed', 'failed'] },
+    completedAt: { $lt: oneDayAgo }
+  });
+  
+  return result.deletedCount;
+}
