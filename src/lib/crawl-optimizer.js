@@ -93,7 +93,7 @@ export function shouldSkipUrl(url) {
     /\/sample/i,
   ];
   
-  return skipPatterns.some(p => p.test(url));
+  return skipPatterns.some(p => p.test(url)); 
 }
 
 /**

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Card, Input, Button, message, Empty, Tag, Collapse, Spin, Modal } from 'antd'
+import { Card, Input, Button, Empty, Tag, Collapse, Spin, Modal, App } from 'antd'
 import { SendOutlined, RobotOutlined, UserOutlined, BulbOutlined, LoadingOutlined } from '@ant-design/icons'
 import { workspaceApi } from '../services/api'
 import ReactMarkdown from 'react-markdown'
@@ -19,6 +19,7 @@ interface ChatHistory {
 }
 
 const ChatTab = ({ workspaceId, currentRole }: ChatTabProps) => {
+  const { message } = App.useApp() // Use message from App context
   const [chatHistory, setChatHistory] = useState<ChatHistory[]>([])
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(false)
@@ -136,7 +137,7 @@ const ChatTab = ({ workspaceId, currentRole }: ChatTabProps) => {
 
   return (
     <div className="space-y-4">
-      <Card className="shadow-md" bodyStyle={{ padding: 0 }}>
+      <Card className="shadow-md" styles={{ body: { padding: 0 } }}>
         <div className="h-[600px] flex flex-col">
           {/* Header with Clear button */}
           {chatHistory.length > 0 && (

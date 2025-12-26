@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Card, Button, Input, Table, message, Modal, Form, Space } from 'antd'
+import { Card, Button, Input, Table, Modal, Form, Space, App } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, FileTextOutlined } from '@ant-design/icons'
 import { workspaceApi, CustomText } from '../services/api'
 
@@ -8,11 +8,14 @@ interface CustomTextTabProps {
 }
 
 const CustomTextTab = ({ workspaceId }: CustomTextTabProps) => {
+  const { message } = App.useApp() // Use message from App context
   const [texts, setTexts] = useState<CustomText[]>([])
   const [loading, setLoading] = useState(false)
   const [modalVisible, setModalVisible] = useState(false)
   const [editingText, setEditingText] = useState<CustomText | null>(null)
   const [form] = Form.useForm()
+  
+  const MAX_CHARACTERS = 100000 // Character limit for custom text
 
   useEffect(() => {
     loadTexts()
@@ -208,12 +211,28 @@ const CustomTextTab = ({ workspaceId }: CustomTextTabProps) => {
           </Form.Item>
           <Form.Item
             name="content"
-            label="Content"
-            rules={[{ required: true, message: 'Please enter content' }]}
+            label={
+              <div className="flex justify-between items-center w-full">
+                <span>Content</span>
+                <span className="text-xs text-gray-500 font-normal">
+                  {form.getFieldValue('content')?.length || 0} / {MAX_CHARACTERS.toLocaleString()} characters
+                </span>
+              </div>
+            }
+            rules={[
+              { required: true, message: 'Please enter content' },
+              { 
+                max: MAX_CHARACTERS, 
+                message: `Content must not exceed ${MAX_CHARACTERS.toLocaleString()} characters` 
+              }
+            ]}
           >
             <Input.TextArea
               placeholder="Enter the text content to be indexed and made searchable"
               rows={12}
+              maxLength={MAX_CHARACTERS}
+              showCount
+              onChange={() => form.validateFields(['content'])}
             />
           </Form.Item>
         </Form>

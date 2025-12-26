@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Tabs, Button, message, Modal, Radio, Space, Card, Typography, Spin, Input } from 'antd'
+import { Tabs, Button, Modal, Radio, Space, Card, Typography, Spin, Input, App } from 'antd'
 import { ArrowLeftOutlined, FileTextOutlined, MessageOutlined, QuestionCircleOutlined, EditOutlined, SettingOutlined, CustomerServiceOutlined, DollarOutlined, ToolOutlined, EditOutlined as EditIcon } from '@ant-design/icons'
 import DocumentsTab from '../components/DocumentsTab'
 import ChatTab from '../components/ChatTab'
@@ -12,6 +12,7 @@ const { Text, Paragraph } = Typography
 const { TextArea } = Input
 
 const WorkspaceDetail = () => {
+  const { message } = App.useApp() // Use message from App context
   const { workspaceId } = useParams<{ workspaceId: string }>()
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('documents')

@@ -1,11 +1,12 @@
-import React from 'react'
+// import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { ConfigProvider } from 'antd'
 import App from './App'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
+  // Temporarily disabled StrictMode to fix double-click upload issue
+  // <React.StrictMode>
     <ConfigProvider
       theme={{
         token: {
@@ -16,5 +17,5 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     >
       <App />
     </ConfigProvider>
-  </React.StrictMode>,
+  // </React.StrictMode>,
 )

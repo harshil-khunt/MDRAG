@@ -16,5 +16,8 @@ export default {
   embeddingModel: process.env.EMBEDDING_MODEL || 'text-embedding-004',
   llmModel: process.env.LLM_MODEL || 'gemini-2.5-flash',
   chunkSize: Number(process.env.CHUNK_SIZE || 800),
-  chunkOverlap: Number(process.env.CHUNK_OVERLAP || 200)
+  chunkOverlap: Number(process.env.CHUNK_OVERLAP || 200),
+  maxDocCharacters: Number(process.env.MAX_DOC_CHARACTERS || 500000),
+  maxWebPages: Number(process.env.MAX_WEB_PAGES || 100),
+  maxQnaCustomTextCharacters: Number(process.env.MAX_QNA_CUSTOM_TEXT_CHARACTERS || 100000)
 };

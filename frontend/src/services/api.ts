@@ -65,6 +65,7 @@ export interface Document {
   source_type: string
   chunk_count: number
   created_at?: string
+  status?: 'discovered' | 'processing' | 'completed' | 'failed'
 }
 
 export interface ChatMessage {
@@ -76,6 +77,19 @@ export interface ChatMessage {
 }
 
 export const workspaceApi = {
+  // Check worker status
+  checkWorkerStatus: async (): Promise<{ status: string; message: string }> => {
+    try {
+      const response = await api.get('/worker/status')
+      return response.data
+    } catch (error: any) {
+      return {
+        status: 'error',
+        message: 'Worker is not running. Please start it with: npm run worker'
+      }
+    }
+  },
+
   // Create workspace
   createWorkspace: async (name: string, llmProvider?: 'gemini' | 'openai', owner?: string, userApiKey?: string, role?: string, customPrompt?: string): Promise<Workspace> => {
     const response = await api.post('/workspaces', { 
@@ -157,7 +171,7 @@ export const workspaceApi = {
     return { results, total: files.length, successful: results.filter(r => r.success).length }
   },
 
-  // Upload URL with tracking options
+  // Upload URL with crawl mode and path filters
   uploadUrl: async (
     workspaceId: string, 
     url: string, 
@@ -166,6 +180,9 @@ export const workspaceApi = {
       trackChanges?: boolean
       scheduleMinutes?: number
       enableOcr?: boolean
+      crawlMode?: 'crawl' | 'sitemap' | 'individual'
+      includePaths?: string[]
+      excludePaths?: string[]
     }
   ): Promise<any> => {
     const response = await api.post(`/workspaces/${workspaceId}/upload/url`, {
@@ -174,6 +191,9 @@ export const workspaceApi = {
       trackChanges: options?.trackChanges || false,
       scheduleMinutes: options?.scheduleMinutes || 60,
       enableOcr: options?.enableOcr || false,
+      crawlMode: options?.crawlMode || 'sitemap',
+      includePaths: options?.includePaths || [],
+      excludePaths: options?.excludePaths || [],
     })
     return response.data
   },

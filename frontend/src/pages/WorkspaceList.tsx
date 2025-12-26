@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Card, Button, Input, Modal, message, Empty, Spin, Radio, Space, Typography, Tag, Checkbox } from 'antd'
+import { Card, Button, Input, Modal, Empty, Spin, Radio, Space, Typography, Tag, Checkbox, App } from 'antd'
 import { PlusOutlined, FolderOpenOutlined, DeleteOutlined, RobotOutlined, ThunderboltOutlined, KeyOutlined, CustomerServiceOutlined, DollarOutlined, ToolOutlined, EditOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { workspaceApi, Workspace } from '../services/api'
@@ -9,6 +9,7 @@ const { Text, Paragraph } = Typography
 const { TextArea } = Input
 
 const WorkspaceList = () => {
+  const { message } = App.useApp() // Use message from App context
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [loading] = useState(false)
   const [modalVisible, setModalVisible] = useState(false)

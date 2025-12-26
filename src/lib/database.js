@@ -117,6 +117,52 @@ export async function insertChunks(workspaceId, sourceName, chunks, embeddings) 
 }
 
 /**
+ * Create placeholder document for discovered URL (two-phase crawling)
+ * Status: 'discovered' -> 'processing' -> 'completed'
+ */
+export async function createDiscoveredPlaceholder(workspaceId, url) {
+  const database = await connectDb();
+  const col = database.collection(`ws_${workspaceId}_chunks`);
+  
+  // Check if already exists
+  const existing = await col.findOne({ source_name: url, chunk_index: -1 });
+  if (existing) return;
+  
+  // Create placeholder with special chunk_index: -1
+  await col.insertOne({
+    source_name: url,
+    chunk_index: -1, // Special marker for placeholder
+    text: '',
+    embedding: [],
+    status: 'discovered',
+    created_at: new Date()
+  });
+}
+
+/**
+ * Update placeholder status when processing starts/completes
+ */
+export async function updatePlaceholderStatus(workspaceId, url, status) {
+  const database = await connectDb();
+  const col = database.collection(`ws_${workspaceId}_chunks`);
+  
+  await col.updateOne(
+    { source_name: url, chunk_index: -1 },
+    { $set: { status, updated_at: new Date() } }
+  );
+}
+
+/**
+ * Delete placeholder after chunks are inserted
+ */
+export async function deletePlaceholder(workspaceId, url) {
+  const database = await connectDb();
+  const col = database.collection(`ws_${workspaceId}_chunks`);
+  
+  await col.deleteOne({ source_name: url, chunk_index: -1 });
+}
+
+/**
  * Fetch top-k similar chunks by cosine similarity (simple in-app search).
  */
 export async function searchSimilar(workspaceId, queryEmbedding, topK = 5) {
@@ -478,6 +524,7 @@ export async function deleteCustomText(workspaceId, textId) {
 
 /**
  * Get document summary for a workspace (list of all sources with chunk counts)
+ * Includes placeholders with status for two-phase crawling
  */
 export async function getWorkspaceDocuments(workspaceId) {
   const database = await connectDb();
@@ -488,8 +535,18 @@ export async function getWorkspaceDocuments(workspaceId) {
     {
       $group: {
         _id: '$source_name',
-        chunk_count: { $sum: 1 },
-        created_at: { $min: '$created_at' }
+        chunk_count: { 
+          $sum: {
+            $cond: [{ $eq: ['$chunk_index', -1] }, 0, 1] // Don't count placeholders
+          }
+        },
+        created_at: { $min: '$created_at' },
+        status: { $first: '$status' }, // Get status from placeholder if exists
+        has_placeholder: {
+          $max: {
+            $cond: [{ $eq: ['$chunk_index', -1] }, 1, 0]
+          }
+        }
       }
     },
     {
@@ -497,6 +554,8 @@ export async function getWorkspaceDocuments(workspaceId) {
         source_name: '$_id',
         chunk_count: 1,
         created_at: 1,
+        status: { $ifNull: ['$status', 'completed'] }, // Default to completed if no status
+        has_placeholder: 1,
         source_type: {
           $cond: {
             if: { $regexMatch: { input: '$_id', regex: '^http' } },

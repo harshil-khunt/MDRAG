@@ -16,12 +16,118 @@ import {
 } from './crawl-optimizer.js';
 
 /**
- * Fetch a URL and return a Buffer and content-type.
+ * Browser-like headers to avoid being blocked
+ */
+const BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'Connection': 'keep-alive',
+  'Upgrade-Insecure-Requests': '1',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
+  'Cache-Control': 'max-age=0'
+};
+
+/**
+ * Check if URL is accessible and not blocked
+ */
+async function checkUrlAccessibility(url) {
+  try {
+    const response = await axios.head(url, {
+      headers: BROWSER_HEADERS,
+      timeout: 10000,
+      maxRedirects: 5,
+      validateStatus: (status) => status < 500 // Accept all non-server-error codes
+    });
+    
+    return {
+      accessible: response.status < 400,
+      status: response.status,
+      message: response.status === 403 ? 'Access forbidden - website blocks crawlers' :
+               response.status === 401 ? 'Authentication required' :
+               response.status === 429 ? 'Rate limited - too many requests' :
+               'OK'
+    };
+  } catch (error) {
+    if (error.response) {
+      return {
+        accessible: false,
+        status: error.response.status,
+        message: error.response.status === 403 ? 'Access forbidden - website blocks crawlers' :
+                 error.response.status === 401 ? 'Authentication required' :
+                 error.response.status === 429 ? 'Rate limited - too many requests' :
+                 `HTTP ${error.response.status}`
+      };
+    }
+    return {
+      accessible: false,
+      status: 0,
+      message: error.code === 'ENOTFOUND' ? 'Website not found' :
+               error.code === 'ETIMEDOUT' ? 'Connection timeout' :
+               error.message
+    };
+  }
+}
+
+/**
+ * Fetch a URL and return a Buffer and content-type with better error handling
  */
 export async function fetchUrlBuffer(url) {
-  const resp = await axios.get(url, { responseType: 'arraybuffer', maxContentLength: 50 * 1024 * 1024 });
-  const contentType = resp.headers['content-type'] || '';
-  return { buffer: Buffer.from(resp.data), contentType };
+  try {
+    // First check if URL is accessible
+    const accessCheck = await checkUrlAccessibility(url);
+    
+    if (!accessCheck.accessible) {
+      if (accessCheck.status === 403) {
+        throw new Error(`Website blocks crawlers (403 Forbidden). This website doesn't allow automated access. Try using "Individual Link" mode or contact the website owner.`);
+      } else if (accessCheck.status === 401) {
+        throw new Error(`Authentication required (401). This page requires login. Cannot crawl password-protected pages.`);
+      } else if (accessCheck.status === 429) {
+        throw new Error(`Rate limited (429). Website is blocking too many requests. Try again later or reduce crawl speed.`);
+      } else {
+        throw new Error(`Cannot access URL: ${accessCheck.message}`);
+      }
+    }
+    
+    // Fetch with browser-like headers
+    const resp = await axios.get(url, { 
+      responseType: 'arraybuffer', 
+      maxContentLength: 50 * 1024 * 1024,
+      headers: BROWSER_HEADERS,
+      timeout: 30000,
+      maxRedirects: 5
+    });
+    
+    const contentType = resp.headers['content-type'] || '';
+    
+    // Check if page requires JavaScript
+    const html = resp.data.toString('utf8');
+    if (html.includes('Please enable JavaScript') || 
+        html.includes('JavaScript is required') ||
+        html.includes('noscript') && html.length < 1000) {
+      console.warn(`⚠️  Page may require JavaScript: ${url}`);
+    }
+    
+    return { buffer: Buffer.from(resp.data), contentType };
+  } catch (error) {
+    // Enhance error messages
+    if (error.message.includes('403') || error.message.includes('Forbidden')) {
+      throw new Error(`Website blocks crawlers (403 Forbidden). This website doesn't allow automated access.`);
+    } else if (error.message.includes('401')) {
+      throw new Error(`Authentication required (401). This page requires login.`);
+    } else if (error.message.includes('429')) {
+      throw new Error(`Rate limited (429). Too many requests. Try again later.`);
+    } else if (error.code === 'ENOTFOUND') {
+      throw new Error(`Website not found. Please check the URL.`);
+    } else if (error.code === 'ETIMEDOUT') {
+      throw new Error(`Connection timeout. Website is not responding.`);
+    } else {
+      throw error;
+    }
+  }
 }
 
 /**
@@ -153,6 +259,7 @@ export async function parseSitemap(baseUrl) {
     
     const resp = await axios.get(sitemapUrl, { 
       timeout: 10000,
+      headers: BROWSER_HEADERS,
       validateStatus: (status) => status === 200 
     });
     
@@ -174,7 +281,10 @@ export async function parseSitemap(baseUrl) {
         if (sitemapEntry.loc && sitemapEntry.loc[0]) {
           // Recursively fetch nested sitemaps
           try {
-            const nestedResp = await axios.get(sitemapEntry.loc[0], { timeout: 10000 });
+            const nestedResp = await axios.get(sitemapEntry.loc[0], { 
+              timeout: 10000,
+              headers: BROWSER_HEADERS
+            });
             const nestedResult = await parseStringPromise(nestedResp.data);
             if (nestedResult.urlset && nestedResult.urlset.url) {
               for (const entry of nestedResult.urlset.url) {
@@ -193,7 +303,11 @@ export async function parseSitemap(baseUrl) {
     console.log(`Found ${urls.length} URLs in sitemap`);
     return urls;
   } catch (error) {
-    console.log(`No sitemap found or failed to parse: ${error.message}`);
+    if (error.response?.status === 403) {
+      console.log(`❌ Sitemap blocked (403 Forbidden): ${error.message}`);
+    } else {
+      console.log(`No sitemap found or failed to parse: ${error.message}`);
+    }
     return [];
   }
 }

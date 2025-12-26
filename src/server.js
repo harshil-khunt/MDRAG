@@ -1,4 +1,4 @@
-import express from 'express';
+  import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
 import crypto from 'crypto';
@@ -31,6 +31,36 @@ app.use(express.json());
 const upload = multer({ dest: 'tmp/' });
 
 app.get('/', (req, res) => res.json({ status: 'ok' }));
+
+// Worker health check endpoint
+app.get('/worker/status', async (req, res) => {
+  try {
+    // Check if queues are accessible
+    const fileQueueHealth = await fileQueue.getJobCounts();
+    const urlQueueHealth = await urlQueue.getJobCounts();
+    const customTextQueueHealth = await customTextQueue.getJobCounts();
+    
+    const isHealthy = fileQueueHealth && urlQueueHealth && customTextQueueHealth;
+    
+    res.json({
+      status: isHealthy ? 'healthy' : 'unhealthy',
+      queues: {
+        file: fileQueueHealth,
+        url: urlQueueHealth,
+        customText: customTextQueueHealth
+      },
+      message: isHealthy 
+        ? 'Worker is running and processing jobs' 
+        : 'Worker may not be running. Please start it with: npm run worker'
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: 'error',
+      message: 'Worker is not running. Please start it with: npm run worker',
+      error: error.message
+    });
+  }
+});
 
 // create workspace
 app.post('/workspaces', async (req, res) => {
@@ -144,7 +174,7 @@ app.post('/workspaces/:id/upload/file', upload.single('file'), async (req, res) 
     console.log(`📤 Enqueueing file: ${file.originalname} (${file.size} bytes) for workspace ${ws}`);
     console.log(`   Temp path: ${file.path}`);
     
-    const job = await fileQueue.add('process-file-job', { 
+    const job = await fileQueue.add('process-file', {  // Fixed: was 'process-file-job', should be 'process-file'
       tempPath: file.path, 
       filename: file.originalname, 
       workspaceId: ws 
@@ -172,25 +202,38 @@ app.post('/workspaces/:id/upload/file', upload.single('file'), async (req, res) 
 app.post('/workspaces/:id/upload/url', async (req, res) => {
   try {
     const ws = req.params.id;
-    const { url, name, trackChanges = false, scheduleMinutes, enableOcr = false } = req.body;
+    const { 
+      url, 
+      name, 
+      trackChanges = false, 
+      scheduleMinutes, 
+      enableOcr = false,
+      crawlMode = 'sitemap', // 'crawl', 'sitemap', or 'individual'
+      includePaths = [],
+      excludePaths = []
+    } = req.body;
+    
     if (!url) return res.status(400).json({ error: 'url is required' });
 
     // If trackChanges is enabled, add to tracked_sources
     if (trackChanges) {
       await upsertTrackedSource(ws, url, {
-        crawlDomain: true,
+        crawlDomain: crawlMode !== 'individual',
         scheduleMinutes: scheduleMinutes || 60,
         enableOcr
       });
     }
 
-    // Enqueue initial crawl
-    const job = await urlQueue.add('process-url-job', { 
+    // Enqueue crawl job with new options
+    const job = await urlQueue.add('process-url', {  // Changed from 'process-url-job' to 'process-url'
       url, 
       workspaceId: ws, 
       name,
       trackChanges,
-      enableOcr
+      enableOcr,
+      crawlMode, // 'crawl', 'sitemap', or 'individual'
+      includePaths, // ['blog/*', 'dev/*']
+      excludePaths  // ['admin/*', 'login/*']
     });
     
     // Create job tracking entry
@@ -198,6 +241,9 @@ app.post('/workspaces/:id/upload/url', async (req, res) => {
     await createJobTracking(ws, job.id.toString(), 'url', url, {
       trackChanges,
       enableOcr,
+      crawlMode,
+      includePaths,
+      excludePaths,
       scheduleMinutes: scheduleMinutes || 60
     });
     
@@ -302,6 +348,19 @@ app.post('/workspaces/:id/qna', async (req, res) => {
       return res.status(400).json({ error: 'question and answer are required' });
     }
     
+    // Enforce character limits
+    const maxChars = config.maxQnaCustomTextCharacters;
+    if (question.length > maxChars) {
+      return res.status(400).json({ 
+        error: `Question exceeds maximum length of ${maxChars} characters (current: ${question.length})` 
+      });
+    }
+    if (answer.length > maxChars) {
+      return res.status(400).json({ 
+        error: `Answer exceeds maximum length of ${maxChars} characters (current: ${answer.length})` 
+      });
+    }
+    
     // Get workspace settings
     const workspace = await getWorkspace(ws);
     const llmProvider = workspace?.llm_provider || 'gemini';
@@ -360,6 +419,14 @@ app.post('/workspaces/:id/texts', async (req, res) => {
       return res.status(400).json({ error: 'title and content are required' });
     }
     
+    // Enforce character limit
+    const maxChars = config.maxQnaCustomTextCharacters;
+    if (content.length > maxChars) {
+      return res.status(400).json({ 
+        error: `Content exceeds maximum length of ${maxChars} characters (current: ${content.length})` 
+      });
+    }
+    
     console.log(`\n📝 Adding custom text to workspace ${ws}`);
     console.log(`   Title: "${title}"`);
     console.log(`   Content length: ${content.length} characters`);
@@ -411,6 +478,14 @@ app.put('/workspaces/:id/texts/:textId', async (req, res) => {
     
     if (!title || !content) {
       return res.status(400).json({ error: 'title and content are required' });
+    }
+    
+    // Enforce character limit
+    const maxChars = config.maxQnaCustomTextCharacters;
+    if (content.length > maxChars) {
+      return res.status(400).json({ 
+        error: `Content exceeds maximum length of ${maxChars} characters (current: ${content.length})` 
+      });
     }
     
     const updated = await updateCustomText(ws, textId, title, content);

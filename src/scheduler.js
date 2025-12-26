@@ -32,7 +32,7 @@ cron.schedule('*/15 * * * *', async () => {
       
       console.log(`⚡ Enqueuing re-crawl for: ${source.url}`);
       
-      await urlQueue.add('process-url-job', {
+      await urlQueue.add('process-url', {  // Fixed: was 'process-url-job', should be 'process-url'
         url: source.url,
         workspaceId: source.workspace_id,
         crawlDomain: source.crawl_domain,
