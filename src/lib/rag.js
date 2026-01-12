@@ -695,8 +695,27 @@ Use your intelligence to determine if a question is truly vague or actually clea
 
 **For VAGUE questions (rare):**
 - First time: Ask what specifically they need help with
-- Second time: Give examples of helpful details
-- Third time: Escalate to support
+- Second time: Give examples of helpful details and suggest ways to phrase questions
+- Third time: Provide a categorized list of available features with example questions
+
+**HUMAN AGENT ESCALATION:**
+- If user explicitly asks to "talk to human", "speak to agent", "contact support", "customer support", "get help", "need support"
+- If user asks "who made this", "how do I get help with this system"
+- If user asks for support/contact WITHOUT mentioning a specific company name from documents
+- After 3 vague exchanges with no progress
+- THEN: Just include the marker "ESCALATE_TO_HUMAN_AGENT" in your response (no explanation needed)
+- Keep your response minimal - the system will handle the escalation message
+
+**CRITICAL: Support Request Detection**
+- "Can I get customer support?" → ESCALATE (no company mentioned)
+- "How do I contact support?" → ESCALATE (no company mentioned)
+- "I need help" → ESCALATE (no company mentioned)
+- "How do I contact [CompanyName] support?" → Search documents for CompanyName support info
+
+**SUPPORT CONTACT LOGIC:**
+- If user asks about a SPECIFIC COMPANY mentioned in documents: Search documents for that company's support info and provide it
+- If user asks about THIS AI ASSISTANT SYSTEM: Trigger human agent escalation (see above)
+- Always check documents FIRST for company-specific support information
 
 **For CLEAR questions (most questions):**
 - Search your documents thoroughly
@@ -754,18 +773,33 @@ ${formattingExamples}
 EXAMPLE CONVERSATION FLOW (showing escalation logic):
 
 Exchange 1:
-User: [vague question - lacks specific details]
-AI: "I don't have enough details to help you properly. Could you explain what specifically you need help with?"
+User: "what?" [after discussing Neo4j]
+AI: "Are you asking about the Neo4j schema we were discussing? I can explain specific parts like node types, relationships, or properties."
 
 Exchange 2:
-User: [still vague - not providing details]
-AI: "I need more specific information to guide you. What exactly are you trying to do or what problem are you facing?"
+User: "dont" [unclear what they don't want]
+AI: "I'm not sure what you're referring to. Could you be more specific? For example:
+- Are you asking about a feature you don't want to use?
+- Is there something you don't understand?
+- Do you want me to stop doing something?"
 
 Exchange 3:
-User: [still vague after 2 attempts]
-AI: "I'm unable to assist without more specific details. Please contact our support team at [contact from context] for personalized help. They'll respond within 24 hours."
+User: "nani?" [still unclear after 2 attempts]
+AI: "I'm having trouble understanding what you need. Here's what I can help with:
 
-**KEY: AI must count exchanges in conversation history and escalate after 2-3 vague responses!**
+**Document Search**: Ask questions about your uploaded files
+**URL Crawling**: Track website changes and search web content  
+**Q&A Management**: Create custom question-answer pairs
+**Workspace Features**: Manage documents, settings, and AI providers
+
+Try asking something like 'How do I upload a document?' or 'What file formats do you support?' ESCALATE_TO_HUMAN_AGENT"
+
+**IMPORTANT: Human Agent Escalation Logic**
+- When user needs human agent: Just include "ESCALATE_TO_HUMAN_AGENT" marker (system will handle the message)
+- If user asks about a COMPANY in the documents: Search documents for that company's support info and provide it
+- Always check documents FIRST for company-specific support information
+
+**KEY: AI must count exchanges in conversation history and adapt responses based on context!**
 
 **ANSWER GUIDELINES - WRITE NATURALLY:**
 // FLAG: WHATSAPP_FORMATTING_MODE = true
@@ -878,57 +912,90 @@ ${conversationContext}
 
 Question: "${query}"
 
-Analyze this question intelligently:
+Analyze this question intelligently using conversation context:
 
-1. **Understand the intent**: What is the user trying to find out?
-   - Use your reasoning to understand their goal
-   - Consider the context and what they're asking about
+1. **Check conversation history first**:
+   - What were we just discussing?
+   - Is this a follow-up to the previous topic?
+   - Can I infer intent from recent exchanges?
 
-2. **Determine if answerable**:
-   - Can you understand what they're asking about? → It's CLEAR
-   - Is there literally no topic or subject? → It's VAGUE
+2. **Classify the query**:
+   
+   **CLEAR** (you understand what they want):
+   - They mention a specific topic, feature, or subject
+   - It's a follow-up to something we discussed
+   - You can infer intent from context
+   - Examples: "what?" after discussing features, "how?" after mentioning a process
+   
+   **VAGUE** (genuinely unclear):
+   - No topic or subject mentioned
+   - No context to infer from
+   - Impossible to know what they're asking about
+   - Examples: Random single words with no prior context
 
 3. **Respond appropriately**:
 
-   **If CLEAR (you understand what they want):**
-   - Search the content above for relevant information
-   - Check if you have COMPLETE information to fully answer the question
-   
-   **CRITICAL DECISION:**
-   - If you have COMPLETE info (all details needed): Provide a full answer
-   - If you have INCOMPLETE info (missing key details): Say "I don't have complete information about [topic] in the uploaded documents."
-   - If you have NO info: Say "I don't have information about [topic] in the uploaded documents."
+   **If CLEAR (most cases):**
+   - Use conversation context to understand what they're asking about
+   - Search the content for relevant information
+   - If you have COMPLETE info: Provide a full, detailed answer
+   - If you have NO/INCOMPLETE info: Say "I don't have information about [specific topic] in the uploaded documents."
    
    **NEVER do this:**
-   - ❌ "While the provided information mentions..." (and stop)
-   - ❌ "Based on the information I have..." (and stop)
-   - ❌ "The document mentions..." (without saying what)
-   - ❌ Starting an answer you can't complete
+   - ❌ Start an answer then stop mid-sentence
+   - ❌ Say "Based on the information I have..." without completing the thought
+   - ❌ Give vague references without specifics
+   - ❌ Cite sources that aren't in the content above
    
    **ALWAYS do this:**
-   - ✅ Give complete answer with all specifics
+   - ✅ Give complete answer with all details
    - ✅ OR say honestly you don't have the information
-   - ✅ Make a clear choice: answer fully or say you can't
+   - ✅ Use conversation context to understand follow-ups
+   - ✅ Only cite sources that are actually in the content
 
-   **If TRULY VAGUE (you genuinely can't tell what they want):**
-   - Check conversation history exchange count above
-   - If 1-2 exchanges: Ask what they need help with
-   - If 3+ exchanges: Escalate to support
+   **If TRULY VAGUE (rare):**
+   - Exchange 1-2: Ask what they need help with, referencing recent topics if available
+   - Exchange 3+: Provide categorized feature list with example questions:
+     * Document Search: "How do I upload files?" "What formats are supported?"
+     * URL Tracking: "Can you monitor website changes?" "How do I add a URL?"
+     * Q&A Management: "How do I create custom Q&As?" "What are Q&A pairs?"
+     * Workspace: "How do I switch AI providers?" "What's a workspace?"
+     * Then offer: "If you'd like to speak with a human agent, just let me know."
+     * If they want human: Include "ESCALATE_TO_HUMAN_AGENT" marker in response
+   
+   **HUMAN AGENT REQUESTS:**
+   - If user asks: "talk to human", "speak to agent", "contact support", "customer support", "get help", "need support"
+   - If user asks for support WITHOUT mentioning a specific company from documents
+   - Just include "ESCALATE_TO_HUMAN_AGENT" marker in your response
+   - No need to explain - the system will handle the escalation message
+   
+   **SUPPORT CONTACT QUESTIONS:**
+   - If asking about a SPECIFIC COMPANY in the content: Search and provide that company's support info from documents
+   - If asking for support WITHOUT company name: Trigger human agent escalation (include ESCALATE_TO_HUMAN_AGENT marker)
+   - Example: "How do I contact [CompanyName]?" → Search documents for CompanyName support info
+   - Example: "Can I get customer support?" → Trigger human escalation (ESCALATE_TO_HUMAN_AGENT)
+   - Example: "I need help" → Trigger human escalation (ESCALATE_TO_HUMAN_AGENT)
 
 4. **Answer structure** (adapt to content):
-   - Contact/pricing questions: Natural paragraphs
-   - Feature questions: Intro + bullets + closing
-   - How-to questions: Intro + numbered steps + closing
+   - Contact/pricing: Natural paragraphs with specifics
+   - Features: Intro + bullets + closing
+   - How-to: Intro + numbered steps + closing
+   - Follow-ups: Direct answer using context
 
-Use your intelligence and reasoning. Don't rely on keyword matching. Understand the user's actual intent.
+Use your intelligence and conversation history. Understand the user's actual intent from context.
 
 Answer:`;
 
     // High-quality, complete responses with adequate token limit
+    // Increased from 700 to 2000 to prevent answer cutoff
     const llmStart = Date.now();
-    const llmOutput = await callLLM(systemPrompt, userPrompt, llmModel, 700, llmProvider, 0.5, userApiKey);
+    const llmOutput = await callLLM(systemPrompt, userPrompt, llmModel, 2000, llmProvider, 0.5, userApiKey);
     console.log(`⏱️ LLM generation: ${Date.now() - llmStart}ms`);
     console.log(`⏱️ TOTAL TIME: ${Date.now() - startTime}ms`);
+
+    // Check if human agent escalation is needed
+    const needsHumanAgent = llmOutput.includes('ESCALATE_TO_HUMAN_AGENT');
+    const cleanedOutput = needsHumanAgent ? llmOutput.replace(/ESCALATE_TO_HUMAN_AGENT/g, '').trim() : llmOutput;
 
     // 6) Extract sources from documents only
     const sources = retrieved && retrieved.length > 0
@@ -967,13 +1034,14 @@ Answer:`;
     // }
 
     return {
-      answer: llmOutput,
+      answer: cleanedOutput,
       sources: sources,
       relevant_chunks,
       qna_matches: [],
       suggested_questions: suggestedQuestions,
       persona_detected: persona,
-      confidence
+      confidence,
+      needsHumanAgent: true
     };
 
   } catch (err) {
