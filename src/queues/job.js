@@ -537,8 +537,25 @@ export async function processCustomTextJob({ workspaceId, textId, title, content
     const { connectDb } = await import('../lib/database.js');
     const database = await connectDb();
     const col = database.collection(`ws_${workspaceId}_chunks`);
+    
+    // Get chunk_ids before deleting
+    const oldChunks = await col.find({ source_name: `custom_text_${textId}` }).toArray();
+    const oldChunkIds = oldChunks.map(c => c.chunk_id).filter(Boolean);
+    
+    // Delete from MongoDB
     await col.deleteMany({ source_name: `custom_text_${textId}` });
-    console.log(`Deleted old chunks for custom text ${textId}`);
+    console.log(`Deleted old chunks for custom text ${textId} from MongoDB`);
+    
+    // Delete from Pinecone
+    if (oldChunkIds.length > 0) {
+      try {
+        const { deleteVectors } = await import('../lib/pinecone.js');
+        await deleteVectors(oldChunkIds, workspaceId);
+        console.log(`Deleted ${oldChunkIds.length} old vectors from Pinecone`);
+      } catch (pineconeError) {
+        console.error('⚠️ Failed to delete old vectors from Pinecone:', pineconeError.message);
+      }
+    }
   }
   
   // Chunk the text

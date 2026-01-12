@@ -2,7 +2,13 @@ import { MongoClient } from 'mongodb';
 import config from '../config.js';
 import crypto from 'crypto';
 
-const client = new MongoClient(config.mongoUri, {});
+const client = new MongoClient(config.mongoUri, {
+  tls: true,
+  tlsAllowInvalidCertificates: false,
+  serverSelectionTimeoutMS: 5000,
+  connectTimeoutMS: 10000,
+  socketTimeoutMS: 45000,
+});
 
 let db;
 
@@ -98,22 +104,49 @@ export async function getWorkspace(workspaceId) {
 
 /**
  * Save chunk embeddings and metadata into collection for the workspace.
- * Each chunk inserted as a document with fields: source_name, chunk_index, text, embedding
+ * MongoDB: stores text, metadata, chunk_id
+ * Pinecone: stores embeddings with chunk_id reference
  */
 export async function insertChunks(workspaceId, sourceName, chunks, embeddings) {
   const database = await connectDb();
   const col = database.collection(`ws_${workspaceId}_chunks`);
+  
+  // Import Pinecone functions
+  const { upsertVectors, generateChunkId } = await import('./pinecone.js');
 
-  const bulk = embeddings.map((embedding, idx) => ({
-    source_name: sourceName,
-    chunk_index: idx,
-    text: chunks[idx],
-    embedding,
-    created_at: new Date()
-  }));
-  if (bulk.length > 0) {
-    await col.insertMany(bulk);
+  // Prepare MongoDB documents (without embeddings)
+  const mongoDocuments = chunks.map((text, idx) => {
+    const chunkId = generateChunkId();
+    return {
+      chunk_id: chunkId, // Unique ID for Pinecone reference
+      source_name: sourceName,
+      chunk_index: idx,
+      text: text,
+      created_at: new Date()
+    };
+  });
+  
+  // Insert into MongoDB
+  if (mongoDocuments.length > 0) {
+    await col.insertMany(mongoDocuments);
+    console.log(`✅ Inserted ${mongoDocuments.length} chunks into MongoDB`);
   }
+  
+  // Prepare Pinecone vectors
+  const pineconeVectors = mongoDocuments.map((doc, idx) => ({
+    id: doc.chunk_id,
+    embedding: embeddings[idx],
+    metadata: {
+      workspace_id: workspaceId,
+      source_name: sourceName,
+      chunk_index: idx,
+      text_preview: doc.text.substring(0, 200) // Store preview in metadata for debugging
+    }
+  }));
+  
+  // Insert into Pinecone (using workspace_id as namespace)
+  await upsertVectors(pineconeVectors, workspaceId);
+  console.log(`✅ Inserted ${pineconeVectors.length} vectors into Pinecone`);
 }
 
 /**
@@ -163,35 +196,97 @@ export async function deletePlaceholder(workspaceId, url) {
 }
 
 /**
- * Fetch top-k similar chunks by cosine similarity (simple in-app search).
+ * Fetch top-k similar chunks using Pinecone for vector search
+ * 1. Search Pinecone for similar vectors
+ * 2. Fetch full chunks from MongoDB using chunk_ids
  */
 export async function searchSimilar(workspaceId, queryEmbedding, topK = 5) {
   const database = await connectDb();
   const col = database.collection(`ws_${workspaceId}_chunks`);
-  const docs = await col.find({}).toArray(); // small dataset approach
   
   console.log(`\n🔍 Searching workspace: ws_${workspaceId}_chunks`);
+  
+  try {
+    // Import Pinecone search function
+    const { searchVectors } = await import('./pinecone.js');
+    
+    // Search Pinecone for similar vectors
+    const pineconeResults = await searchVectors(queryEmbedding, workspaceId, topK);
+    
+    if (!pineconeResults || pineconeResults.length === 0) {
+      console.log('⚠️ No similar vectors found in Pinecone');
+      return [];
+    }
+    
+    console.log(`✅ Found ${pineconeResults.length} similar vectors in Pinecone`);
+    
+    // Extract chunk_ids from Pinecone results
+    const chunkIds = pineconeResults.map(r => r.id);
+    
+    // Fetch full chunks from MongoDB
+    const chunks = await col.find({ chunk_id: { $in: chunkIds } }).toArray();
+    
+    console.log(`✅ Fetched ${chunks.length} chunks from MongoDB`);
+    
+    // Create a map for quick lookup
+    const chunkMap = {};
+    chunks.forEach(chunk => {
+      chunkMap[chunk.chunk_id] = chunk;
+    });
+    
+    // Merge Pinecone scores with MongoDB chunks (maintain order)
+    const results = pineconeResults
+      .map(pr => {
+        const chunk = chunkMap[pr.id];
+        if (!chunk) return null;
+        
+        return {
+          ...chunk,
+          score: pr.score,
+          sourceType: chunk.source_name?.startsWith('custom_text_') ? 'custom_text' 
+                    : chunk.source_name?.startsWith('http') ? 'url' 
+                    : 'file'
+        };
+      })
+      .filter(Boolean); // Remove nulls
+    
+    // Log top results
+    console.log(`\n🎯 Top ${results.length} results by relevance:`);
+    results.forEach((r, i) => {
+      const sourceName = r.source_name || 'unknown';
+      const preview = r.text.substring(0, 80).replace(/\n/g, ' ');
+      const priorityIcon = r.sourceType === 'custom_text' ? '⭐' : r.sourceType === 'file' ? '📄' : '🌐';
+      console.log(`  ${i + 1}. ${priorityIcon} [${r.sourceType.toUpperCase()}] Score: ${r.score.toFixed(4)} | ${sourceName}`);
+      console.log(`     Preview: "${preview}..."`);
+    });
+    
+    return results;
+    
+  } catch (error) {
+    console.error('❌ Error searching with Pinecone:', error.message);
+    console.log('⚠️ Falling back to MongoDB-only search (slower)');
+    
+    // Fallback to old MongoDB-only search if Pinecone fails
+    return searchSimilarFallback(workspaceId, queryEmbedding, topK);
+  }
+}
+
+/**
+ * Fallback: MongoDB-only search (for backward compatibility or if Pinecone fails)
+ * This is the old method - slower but works without Pinecone
+ */
+async function searchSimilarFallback(workspaceId, queryEmbedding, topK = 5) {
+  const database = await connectDb();
+  const col = database.collection(`ws_${workspaceId}_chunks`);
+  const docs = await col.find({}).toArray();
+  
   console.log(`📊 Total chunks found: ${docs.length}`);
   
-  // Log source breakdown
-  if (docs.length > 0) {
-    const sourceTypes = {};
-    docs.forEach(doc => {
-      const sourceName = doc.source_name || 'unknown';
-      if (sourceName.startsWith('custom_text_')) {
-        sourceTypes['custom_text'] = (sourceTypes['custom_text'] || 0) + 1;
-      } else if (sourceName.startsWith('http')) {
-        sourceTypes['url'] = (sourceTypes['url'] || 0) + 1;
-      } else {
-        sourceTypes['file'] = (sourceTypes['file'] || 0) + 1;
-      }
-    });
-    console.log(`📂 Source breakdown:`, sourceTypes);
-  }
-  
   if (!docs || docs.length === 0) return [];
-  // compute similarity
+  
+  // Compute similarity (old method - only works if embeddings still in MongoDB)
   function cosineSim(a, b) {
+    if (!a || !b || a.length === 0 || b.length === 0) return 0;
     let dot = 0, na = 0, nb = 0;
     for (let i = 0; i < a.length; i++) {
       dot += a[i] * b[i];
@@ -200,52 +295,38 @@ export async function searchSimilar(workspaceId, queryEmbedding, topK = 5) {
     }
     return dot / (Math.sqrt(na) * Math.sqrt(nb) + 1e-12);
   }
-  // Calculate similarity scores with priority boost
-  const scored = docs.map(d => {
-    const baseSimilarity = cosineSim(d.embedding, queryEmbedding);
-    const sourceName = d.source_name || '';
-    
-    // Classify source type and apply priority boost
-    let sourceType;
-    let priorityBoost = 0;
-    
-    if (sourceName.startsWith('custom_text_')) {
-      sourceType = 'custom_text';
-      priorityBoost = 0.15; // +15% boost for custom texts
-    } else if (sourceName.startsWith('http')) {
-      sourceType = 'url';
-      priorityBoost = 0; // No boost for URLs
-    } else {
-      sourceType = 'file';
-      priorityBoost = 0.05; // +5% boost for uploaded files
-    }
-    
-    // Boosted score = similarity + priority boost
-    const boostedScore = baseSimilarity + priorityBoost;
-    
-    return { 
-      doc: d, 
-      score: boostedScore,
-      originalScore: baseSimilarity,
-      sourceType: sourceType 
-    };
-  });
   
-  // Sort by boosted score (similarity + priority boost)
-  // This ensures high-similarity URLs can beat low-similarity files
+  const scored = docs
+    .filter(d => d.embedding && d.embedding.length > 0) // Only docs with embeddings
+    .map(d => {
+      const baseSimilarity = cosineSim(d.embedding, queryEmbedding);
+      const sourceName = d.source_name || '';
+      
+      let sourceType;
+      let priorityBoost = 0;
+      
+      if (sourceName.startsWith('custom_text_')) {
+        sourceType = 'custom_text';
+        priorityBoost = 0.15;
+      } else if (sourceName.startsWith('http')) {
+        sourceType = 'url';
+        priorityBoost = 0;
+      } else {
+        sourceType = 'file';
+        priorityBoost = 0.05;
+      }
+      
+      const boostedScore = baseSimilarity + priorityBoost;
+      
+      return { 
+        doc: d, 
+        score: boostedScore,
+        originalScore: baseSimilarity,
+        sourceType: sourceType 
+      };
+    });
+  
   scored.sort((a, b) => b.score - a.score);
-  
-  // Log top results with scores
-  console.log(`\n🎯 Top ${Math.min(topK, scored.length)} results by relevance:`);
-  scored.slice(0, topK).forEach((s, i) => {
-    const sourceName = s.doc.source_name || 'unknown';
-    const preview = s.doc.text.substring(0, 80).replace(/\n/g, ' ');
-    const priorityIcon = s.sourceType === 'custom_text' ? '⭐' : s.sourceType === 'file' ? '📄' : '🌐';
-    const boost = s.score - s.originalScore;
-    const boostText = boost > 0 ? ` (+${boost.toFixed(2)} boost)` : '';
-    console.log(`  ${i + 1}. ${priorityIcon} [${s.sourceType.toUpperCase()}] Score: ${s.score.toFixed(4)}${boostText} | ${sourceName}`);
-    console.log(`     Preview: "${preview}..."`);
-  });
   
   return scored.slice(0, topK).map(s => ({ ...s.doc, score: s.score }));
 }

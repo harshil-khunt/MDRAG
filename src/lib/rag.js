@@ -388,6 +388,7 @@ export async function answerQuery(workspaceId, query, opts = {}) {
     
     // FAST PATH: Detect simple queries that don't need document search
     const simplePatterns = [
+      // English
       /^(hi|hello|hey|hii|hiii|yo|sup|what'?s up|whats up|wassup)[\s\?\!]*$/i,
       /^(thanks|thank you|thx|ty|thank u)[\s\?\!]*$/i,
       /^(bye|goodbye|see you|cya|later)[\s\?\!]*$/i,
@@ -396,7 +397,27 @@ export async function answerQuery(workspaceId, query, opts = {}) {
       /^(who|what) are you[\?\!]*$/i,
       /^(help|assist|support)[\s\?\!]*$/i,
       /^how are you[\?\!]*$/i,
-      /^(good morning|good afternoon|good evening)[\s\?\!]*$/i
+      /^(good morning|good afternoon|good evening)[\s\?\!]*$/i,
+      // Portuguese
+      /^(oi|olá|ola|ei|e aí|e ai)[\s\?\!]*$/i,
+      /^(obrigad[oa]|valeu|brigad[oa])[\s\?\!]*$/i,
+      /^(tchau|até logo|até|falou)[\s\?\!]*$/i,
+      /^(ok|beleza|legal|ótimo|otimo|perfeito|entendi)[\s\?\!]*$/i,
+      /^o que (você|voce|vc) (pode|consegue) (fazer|ajudar)/i,
+      /^(quem|o que) (é|e) (você|voce|vc)[\?\!]*$/i,
+      /^(ajuda|suporte|apoio|auxílio|auxilio)[\s\?\!]*$/i,
+      /^como (você|voce|vc) (está|esta|vai)[\?\!]*$/i,
+      /^(bom dia|boa tarde|boa noite)[\s\?\!]*$/i,
+      /^posso obter (suporte|ajuda|apoio)/i,
+      // Spanish
+      /^(hola|hey|qué tal|que tal)[\s\?\!]*$/i,
+      /^(gracias|muchas gracias)[\s\?\!]*$/i,
+      /^(adiós|adios|hasta luego|chao)[\s\?\!]*$/i,
+      /^qué (puedes|puede) (hacer|ayudar)/i,
+      /^(quién|quien) eres[\?\!]*$/i,
+      /^(ayuda|soporte|apoyo)[\s\?\!]*$/i,
+      /^cómo estás[\?\!]*$/i,
+      /^(buenos días|buenas tardes|buenas noches)[\s\?\!]*$/i
     ];
     
     const isSimpleQuery = simplePatterns.some(pattern => pattern.test(query));
@@ -407,6 +428,8 @@ export async function answerQuery(workspaceId, query, opts = {}) {
       
       // Direct LLM response without document search
       const simplePrompt = `You're a helpful AI assistant. The user said: "${query}"
+
+CRITICAL: Respond in the SAME LANGUAGE as the user's message above!
 
 Respond naturally and briefly (1-2 sentences). If they're greeting, greet back. If asking what you can do, briefly explain you help them chat with their uploaded documents.
 
@@ -426,20 +449,41 @@ Response:`;
         };
       } catch (error) {
         console.error('Fast path LLM error:', error);
+        
+        // Detect language for fallback responses
+        const isPT = /^(oi|olá|ola|obrigad|tchau|você|voce|posso|como|bom dia|boa)/i.test(query);
+        const isES = /^(hola|gracias|adiós|adios|qué|que|puedes|quién|quien|cómo|buenos|buenas)/i.test(query);
+        
         // Fallback to instant hardcoded responses
-        const responses = {
+        const responses = isPT ? {
+          greeting: "Olá! Estou aqui para ajudar com seus documentos. O que você gostaria de saber?",
+          thanks: "De nada! Posso ajudar com mais alguma coisa?",
+          bye: "Até logo! Volte sempre que precisar.",
+          whatCanYouDo: "Eu ajudo você a conversar com seus documentos! Faça upload de arquivos, adicione URLs ou cole texto - depois me pergunte qualquer coisa sobre eles.",
+          whoAreYou: "Sou seu assistente de IA que ajuda a encontrar informações em seus documentos. O que você gostaria de saber?",
+          support: "Claro! Estou aqui para ajudar. Você pode fazer upload de documentos, adicionar URLs de sites ou criar pares de perguntas e respostas. Depois é só me perguntar qualquer coisa sobre o conteúdo!"
+        } : isES ? {
+          greeting: "¡Hola! Estoy aquí para ayudarte con tus documentos. ¿Qué te gustaría saber?",
+          thanks: "¡De nada! ¿Puedo ayudarte con algo más?",
+          bye: "¡Adiós! Vuelve cuando quieras.",
+          whatCanYouDo: "¡Te ayudo a chatear con tus documentos! Sube archivos, añade URLs o pega texto - luego pregúntame lo que quieras sobre ellos.",
+          whoAreYou: "Soy tu asistente de IA que te ayuda a encontrar información en tus documentos. ¿Qué te gustaría saber?",
+          support: "¡Claro! Estoy aquí para ayudar. Puedes subir documentos, añadir URLs de sitios web o crear pares de preguntas y respuestas. ¡Luego pregúntame lo que quieras sobre el contenido!"
+        } : {
           greeting: "Hey! I'm here to help you with your documents. What would you like to know?",
           thanks: "You're welcome! Anything else I can help with?",
           bye: "Goodbye! Feel free to come back anytime.",
           whatCanYouDo: "I help you chat with your uploaded documents! Upload files, add URLs, or paste text - then ask me anything about them.",
-          whoAreYou: "I'm your AI assistant that helps you find information in your documents. What would you like to know?"
+          whoAreYou: "I'm your AI assistant that helps you find information in your documents. What would you like to know?",
+          support: "Of course! I'm here to help. You can upload documents, add website URLs, or create Q&A pairs. Then just ask me anything about the content!"
         };
         
-        if (/^(hi|hello|hey)/i.test(query)) return { answer: responses.greeting, sources: [], relevant_chunks: [], suggested_questions: [], persona_detected: 'general', confidence: 'HIGH' };
-        if (/^(thanks|thank)/i.test(query)) return { answer: responses.thanks, sources: [], relevant_chunks: [], suggested_questions: [], persona_detected: 'general', confidence: 'HIGH' };
-        if (/^(bye|goodbye)/i.test(query)) return { answer: responses.bye, sources: [], relevant_chunks: [], suggested_questions: [], persona_detected: 'general', confidence: 'HIGH' };
-        if (/what.*you.*do/i.test(query)) return { answer: responses.whatCanYouDo, sources: [], relevant_chunks: [], suggested_questions: [], persona_detected: 'general', confidence: 'HIGH' };
-        if (/(who|what).*are you/i.test(query)) return { answer: responses.whoAreYou, sources: [], relevant_chunks: [], suggested_questions: [], persona_detected: 'general', confidence: 'HIGH' };
+        if (/^(hi|hello|hey|oi|olá|ola|hola)/i.test(query)) return { answer: responses.greeting, sources: [], relevant_chunks: [], suggested_questions: [], persona_detected: 'general', confidence: 'HIGH' };
+        if (/^(thanks|thank|obrigad|gracias)/i.test(query)) return { answer: responses.thanks, sources: [], relevant_chunks: [], suggested_questions: [], persona_detected: 'general', confidence: 'HIGH' };
+        if (/^(bye|goodbye|tchau|adiós|adios)/i.test(query)) return { answer: responses.bye, sources: [], relevant_chunks: [], suggested_questions: [], persona_detected: 'general', confidence: 'HIGH' };
+        if (/what.*you.*do|o que.*você.*pode|o que.*voce.*pode|qué.*puedes/i.test(query)) return { answer: responses.whatCanYouDo, sources: [], relevant_chunks: [], suggested_questions: [], persona_detected: 'general', confidence: 'HIGH' };
+        if (/(who|what).*are you|(quem|o que).*(é|e).*(você|voce)|quién.*eres/i.test(query)) return { answer: responses.whoAreYou, sources: [], relevant_chunks: [], suggested_questions: [], persona_detected: 'general', confidence: 'HIGH' };
+        if (/(help|assist|support|ajuda|suporte|apoio|ayuda)/i.test(query)) return { answer: responses.support, sources: [], relevant_chunks: [], suggested_questions: [], persona_detected: 'general', confidence: 'HIGH' };
       }
     }
     
@@ -604,9 +648,12 @@ INSTRUCTIONS:
 - Be conversational and helpful
 - Don't say "I don't know" about your own features
 - If they ask about content you don't have (like their documents), explain they need to upload first
-- Understand context - "can you help me with this" means explain what you can do`;
+- Understand context - "can you help me with this" means explain what you can do
+- CRITICAL: Respond in the SAME LANGUAGE as the user's question`;
 
       const userPrompt = `User: "${query}"
+
+**CRITICAL: Respond in the SAME LANGUAGE as the user's question above!**
 
 Respond naturally and intelligently. Understand what they're really asking and provide a helpful answer.`;
 
@@ -626,16 +673,29 @@ Respond naturally and intelligently. Understand what they're really asking and p
         };
       } catch (error) {
         console.error('AI call failed:', error);
+        
+        // Detect language for fallback
+        const isPT = /^(oi|olá|ola|obrigad|tchau|você|voce|posso|como|bom dia|boa|o que)/i.test(query);
+        const isES = /^(hola|gracias|adiós|adios|qué|que|puedes|quién|quien|cómo|buenos|buenas)/i.test(query);
+        
         // Fallback if AI call fails
+        const fallbackMessage = isPT 
+          ? "Olá! 👋 Sou seu assistente de IA. Posso ajudar você a analisar documentos, rastrear sites e responder perguntas sobre seu conteúdo. Faça upload de documentos ou URLs para começar, ou me pergunte o que posso fazer!"
+          : isES
+          ? "¡Hola! 👋 Soy tu asistente de IA. Puedo ayudarte a analizar documentos, rastrear sitios web y responder preguntas sobre tu contenido. ¡Sube documentos o URLs para empezar, o pregúntame qué puedo hacer!"
+          : "Hey! 👋 I'm your AI assistant. I can help you analyze documents, crawl websites, and answer questions about your content. Upload some documents or URLs to get started, or ask me what I can do!";
+        
+        const suggestions = isPT
+          ? ['O que você pode fazer?', 'Como faço upload de documentos?', 'Você pode rastrear mudanças em sites?']
+          : isES
+          ? ['¿Qué puedes hacer?', '¿Cómo subo documentos?', '¿Puedes rastrear cambios en sitios web?']
+          : ['What can you do?', 'How do I upload documents?', 'Can you track website changes?'];
+        
         return {
-          answer: "Hey! 👋 I'm your AI assistant. I can help you analyze documents, crawl websites, and answer questions about your content. Upload some documents or URLs to get started, or ask me what I can do!",
+          answer: fallbackMessage,
           sources: [],
           relevant_chunks: [],
-          suggested_questions: [
-            'What can you do?',
-            'How do I upload documents?',
-            'Can you track website changes?'
-          ],
+          suggested_questions: suggestions,
           persona_detected: 'general',
           confidence: 'LOW'
         };
@@ -665,6 +725,15 @@ Respond naturally and intelligently. Understand what they're really asking and p
 **CORE KNOWLEDGE BASE RULES:**
 
 You're an intelligent AI assistant like ChatGPT. Provide well-structured, complete, and satisfying answers that fully address the user's question. Understand the user's question deeply, reason about their situation, and provide a helpful answer.
+
+**LANGUAGE MATCHING (CRITICAL):**
+- ALWAYS respond in the SAME LANGUAGE the user asks in
+- If user asks in Portuguese → Answer in Portuguese
+- If user asks in Spanish → Answer in Spanish
+- If user asks in French → Answer in French
+- If user asks in English → Answer in English
+- Detect the language from the user's question and match it exactly
+- This applies to ALL responses, including error messages and clarifications
 
 ${formattingInstructions}
 
@@ -699,22 +768,30 @@ Use your intelligence to determine if a question is truly vague or actually clea
 - Third time: Provide a categorized list of available features with example questions
 
 **HUMAN AGENT ESCALATION:**
-- If user explicitly asks to "talk to human", "speak to agent", "contact support", "customer support", "get help", "need support"
+- If user asks for human support, customer service, or wants to talk to a person (in ANY language)
+- Use your AI intelligence to detect these requests in ALL languages (English, Spanish, Portuguese, French, German, Hindi, Arabic, Chinese, Japanese, etc.)
+- Examples in different languages:
+  * English: "human agent", "talk to person", "customer support", "connect me to agent"
+  * Spanish: "agente humana", "conectar con agente", "hablar con persona", "atención al cliente"
+  * Portuguese: "agente humano", "falar com atendente", "suporte humano"
+  * French: "agent humain", "parler à quelqu'un", "service client"
+  * German: "menschlicher Agent", "mit jemandem sprechen", "Kundendienst"
+  * (And ANY other language - use your intelligence!)
 - If user asks "who made this", "how do I get help with this system"
 - If user asks for support/contact WITHOUT mentioning a specific company name from documents
 - After 3 vague exchanges with no progress
-- THEN: Just include the marker "ESCALATE_TO_HUMAN_AGENT" in your response (no explanation needed)
-- Keep your response minimal - the system will handle the escalation message
+- THEN: Your ENTIRE response must be ONLY this exact text: ESCALATE_TO_HUMAN_AGENT
+- DO NOT add any other text, explanation, or punctuation - ONLY the marker word
 
-**CRITICAL: Support Request Detection**
-- "Can I get customer support?" → ESCALATE (no company mentioned)
-- "How do I contact support?" → ESCALATE (no company mentioned)
-- "I need help" → ESCALATE (no company mentioned)
-- "How do I contact [CompanyName] support?" → Search documents for CompanyName support info
+**SUPPORT DETECTION LOGIC:**
+- Use your intelligence to detect when user wants human support in ANY language
+- Understand the MEANING, not just keywords
+- If they mention a SPECIFIC COMPANY from documents → Search for that company's support info
+- If NO specific company mentioned → Your response = ESCALATE_TO_HUMAN_AGENT (nothing else)
 
 **SUPPORT CONTACT LOGIC:**
 - If user asks about a SPECIFIC COMPANY mentioned in documents: Search documents for that company's support info and provide it
-- If user asks about THIS AI ASSISTANT SYSTEM: Trigger human agent escalation (see above)
+- If user asks about THIS AI ASSISTANT SYSTEM: Write only "ESCALATE_TO_HUMAN_AGENT"
 - Always check documents FIRST for company-specific support information
 
 **For CLEAR questions (most questions):**
@@ -795,9 +872,19 @@ AI: "I'm having trouble understanding what you need. Here's what I can help with
 Try asking something like 'How do I upload a document?' or 'What file formats do you support?' ESCALATE_TO_HUMAN_AGENT"
 
 **IMPORTANT: Human Agent Escalation Logic**
-- When user needs human agent: Just include "ESCALATE_TO_HUMAN_AGENT" marker (system will handle the message)
-- If user asks about a COMPANY in the documents: Search documents for that company's support info and provide it
+- Use AI intelligence to detect when user wants human support in ANY language (English, Spanish, Portuguese, French, German, Hindi, Arabic, Chinese, Japanese, Korean, Italian, Russian, etc.)
+- Understand the MEANING and INTENT, not just specific keywords
+- Examples across languages:
+  * English: "human agent", "talk to person", "customer support"
+  * Spanish: "agente humana", "conectar con agente", "hablar con persona"
+  * Portuguese: "agente humano", "falar com atendente", "suporte humano"
+  * French: "agent humain", "parler à quelqu'un"
+  * German: "menschlicher Agent", "mit jemandem sprechen"
+  * (Use your intelligence for ALL other languages!)
+- If user asks about a COMPANY in the documents: Search documents for that company's support info
+- If user asks for general support/human agent: Write ONLY "ESCALATE_TO_HUMAN_AGENT" (no other text)
 - Always check documents FIRST for company-specific support information
+- CRITICAL: When escalating, your ENTIRE response must be ONLY the word "ESCALATE_TO_HUMAN_AGENT" with nothing else
 
 **KEY: AI must count exchanges in conversation history and adapt responses based on context!**
 
@@ -912,6 +999,8 @@ ${conversationContext}
 
 Question: "${query}"
 
+**CRITICAL: Respond in the SAME LANGUAGE as the question above!**
+
 Analyze this question intelligently using conversation context:
 
 1. **Check conversation history first**:
@@ -964,17 +1053,24 @@ Analyze this question intelligently using conversation context:
      * If they want human: Include "ESCALATE_TO_HUMAN_AGENT" marker in response
    
    **HUMAN AGENT REQUESTS:**
-   - If user asks: "talk to human", "speak to agent", "contact support", "customer support", "get help", "need support"
+   - Use your intelligence to detect when user wants to talk to a human agent in ANY language
+   - Understand the MEANING and INTENT across all languages (English, Spanish, Portuguese, French, German, Hindi, Arabic, Chinese, Japanese, Korean, Italian, Russian, Dutch, Turkish, etc.)
+   - Examples (but not limited to):
+     * English: "human agent", "talk to person", "customer support", "speak with someone"
+     * Spanish: "agente humana", "conectar", "hablar con", "atención al cliente"
+     * Portuguese: "agente humano", "falar com", "atendimento", "suporte"
+     * French: "agent humain", "parler avec", "service client"
+     * German: "menschlicher Agent", "mit Person sprechen", "Kundendienst"
+     * (And ALL other languages - use your AI intelligence!)
    - If user asks for support WITHOUT mentioning a specific company from documents
-   - Just include "ESCALATE_TO_HUMAN_AGENT" marker in your response
-   - No need to explain - the system will handle the escalation message
+   - Response format: Write ONLY the exact text "ESCALATE_TO_HUMAN_AGENT" with NO other words, NO explanation, NO punctuation
+   - Example correct response: ESCALATE_TO_HUMAN_AGENT
+   - Example WRONG response: "I'll connect you to a human agent. ESCALATE_TO_HUMAN_AGENT"
    
    **SUPPORT CONTACT QUESTIONS:**
    - If asking about a SPECIFIC COMPANY in the content: Search and provide that company's support info from documents
-   - If asking for support WITHOUT company name: Trigger human agent escalation (include ESCALATE_TO_HUMAN_AGENT marker)
-   - Example: "How do I contact [CompanyName]?" → Search documents for CompanyName support info
-   - Example: "Can I get customer support?" → Trigger human escalation (ESCALATE_TO_HUMAN_AGENT)
-   - Example: "I need help" → Trigger human escalation (ESCALATE_TO_HUMAN_AGENT)
+   - If asking for support WITHOUT company name: Write ONLY "ESCALATE_TO_HUMAN_AGENT" (nothing before or after)
+   - Use your intelligence to distinguish between company-specific and general support requests
 
 4. **Answer structure** (adapt to content):
    - Contact/pricing: Natural paragraphs with specifics
@@ -995,7 +1091,7 @@ Answer:`;
 
     // Check if human agent escalation is needed
     const needsHumanAgent = llmOutput.includes('ESCALATE_TO_HUMAN_AGENT');
-    const cleanedOutput = needsHumanAgent ? llmOutput.replace(/ESCALATE_TO_HUMAN_AGENT/g, '').trim() : llmOutput;
+    const cleanedOutput = needsHumanAgent ? llmOutput.replace(/ESCALATE_TO_HUMAN_AGENT/g, ' ').trim() : llmOutput;
 
     // 6) Extract sources from documents only
     const sources = retrieved && retrieved.length > 0
@@ -1007,7 +1103,7 @@ Answer:`;
           text: c.text.length > 300 ? c.text.substring(0, 300) + '...' : c.text,
           source: c.source_name,
           chunk_index: c.chunk_index,
-          similarity: c.score ? Number(c.score.toFixed(3)) : null
+          similarity: c.score ? Number(c.score.toFixed(3)) : null 
         }))
       : [];
 
@@ -1041,11 +1137,23 @@ Answer:`;
       suggested_questions: suggestedQuestions,
       persona_detected: persona,
       confidence,
-      needsHumanAgent: true
+      needsHumanAgent: needsHumanAgent
     };
 
   } catch (err) {
     console.error('RAG error:', err);
+    
+    // Handle MongoDB connection errors
+    if (err.name === 'MongoServerSelectionError' || err.message?.includes('SSL') || err.message?.includes('TLS')) {
+      return {
+        answer: 'Database connection error. Please check your MongoDB connection settings and try again.',
+        sources: [],
+        relevant_chunks: [],
+        suggested_questions: [],
+        persona_detected: 'general',
+        confidence: 'LOW'
+      };
+    }
     
     // Handle specific error types
     if (err.message?.includes('429') || err.message?.includes('quota') || err.message?.includes('rate limit')) {

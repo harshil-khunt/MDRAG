@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Tabs, Button, Modal, Radio, Space, Card, Typography, Spin, Input, App } from 'antd'
-import { ArrowLeftOutlined, FileTextOutlined, MessageOutlined, QuestionCircleOutlined, EditOutlined, SettingOutlined, CustomerServiceOutlined, DollarOutlined, ToolOutlined, EditOutlined as EditIcon } from '@ant-design/icons'
+import { ArrowLeftOutlined, FileTextOutlined, MessageOutlined, QuestionCircleOutlined, EditOutlined, SettingOutlined, CustomerServiceOutlined, DollarOutlined, ToolOutlined, EditOutlined as EditIcon, BarChartOutlined } from '@ant-design/icons'
 import DocumentsTab from '../components/DocumentsTab'
 import ChatTab from '../components/ChatTab'
 import QnATab from '../components/QnATab'
 import CustomTextTab from '../components/CustomTextTab'
+import UsageStats from '../components/UsageStats'
 import { workspaceApi } from '../services/api'
 
 const { Text, Paragraph } = Typography
@@ -124,6 +125,16 @@ const WorkspaceDetail = () => {
         </span>
       ),
       children: <DocumentsTab workspaceId={workspaceId} />,
+    },
+    {
+      key: 'usage',
+      label: (
+        <span className="flex items-center gap-2">
+          <BarChartOutlined />
+          Usage & Stats
+        </span>
+      ),
+      children: <UsageStats workspaceId={workspaceId} />,
     },
     {
       key: 'qna',

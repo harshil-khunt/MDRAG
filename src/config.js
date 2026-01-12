@@ -19,5 +19,9 @@ export default {
   chunkOverlap: Number(process.env.CHUNK_OVERLAP || 200),
   maxDocCharacters: Number(process.env.MAX_DOC_CHARACTERS || 500000),
   maxWebPages: Number(process.env.MAX_WEB_PAGES || 100),
-  maxQnaCustomTextCharacters: Number(process.env.MAX_QNA_CUSTOM_TEXT_CHARACTERS || 100000)
+  maxQnaCustomTextCharacters: Number(process.env.MAX_QNA_CUSTOM_TEXT_CHARACTERS || 100000),
+  // Pinecone configuration
+  pineconeApiKey: process.env.PINECONE_API_KEY,
+  pineconeIndexName: process.env.PINECONE_INDEX_NAME || 'ai-assistant',
+  pineconeEnvironment: process.env.PINECONE_ENVIRONMENT
 };

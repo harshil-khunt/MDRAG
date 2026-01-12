@@ -302,6 +302,32 @@ export const workspaceApi = {
     const response = await api.delete(`/workspaces/${workspaceId}/texts/${textId}`)
     return response.data
   },
+
+  // ========== Usage & Analytics APIs ==========
+  
+  // Get usage statistics for workspace
+  getUsageStats: async (workspaceId: string): Promise<any> => {
+    const response = await api.get(`/workspaces/${workspaceId}/usage`)
+    return response.data
+  },
+
+  // Get vector count only
+  getVectorCount: async (workspaceId: string): Promise<any> => {
+    const response = await api.get(`/workspaces/${workspaceId}/vectors/count`)
+    return response.data
+  },
+
+  // Get all workspaces usage (admin)
+  getAllUsageStats: async (): Promise<any> => {
+    const response = await api.get('/admin/usage/all')
+    return response.data
+  },
+
+  // Get Pinecone index stats (admin)
+  getPineconeStats: async (): Promise<any> => {
+    const response = await api.get('/admin/pinecone/stats')
+    return response.data
+  },
 }
 
 export default api

@@ -283,9 +283,27 @@ app.delete('/workspaces/:id/documents/:sourceName', async (req, res) => {
     const database = await connectDb();
     const col = database.collection(`ws_${ws}_chunks`);
     
-    const result = await col.deleteMany({ source_name: sourceName });
+    // Get chunk_ids before deleting from MongoDB
+    const chunks = await col.find({ source_name: sourceName }).toArray();
+    const chunkIds = chunks.map(c => c.chunk_id).filter(Boolean);
     
-    console.log(`✅ Deleted ${result.deletedCount} chunks for ${sourceName}`);
+    console.log(`📋 Found ${chunks.length} chunks to delete`);
+    
+    // Delete from MongoDB
+    const result = await col.deleteMany({ source_name: sourceName });
+    console.log(`✅ Deleted ${result.deletedCount} chunks from MongoDB`);
+    
+    // Delete from Pinecone
+    if (chunkIds.length > 0) {
+      try {
+        const { deleteVectors } = await import('./lib/pinecone.js');
+        await deleteVectors(chunkIds, ws);
+        console.log(`✅ Deleted ${chunkIds.length} vectors from Pinecone`);
+      } catch (pineconeError) {
+        console.error('⚠️ Failed to delete from Pinecone:', pineconeError.message);
+        // Continue even if Pinecone delete fails
+      }
+    }
     
     res.json({ 
       success: true, 
@@ -544,6 +562,91 @@ app.post('/workspaces/:id/chat', async (req, res) => {
     res.json(result);
   } catch (e) {
     console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ========== PINECONE USAGE & ANALYTICS ENDPOINTS ==========
+
+// Get usage stats for a specific workspace
+app.get('/workspaces/:id/usage', async (req, res) => {
+  try {
+    const ws = req.params.id;
+    const { getWorkspaceUsageReport } = await import('./lib/pinecone.js');
+    
+    const report = await getWorkspaceUsageReport(ws);
+    res.json(report);
+  } catch (e) {
+    console.error('Usage report error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get vector count for a specific workspace
+app.get('/workspaces/:id/vectors/count', async (req, res) => {
+  try {
+    const ws = req.params.id;
+    const { getWorkspaceVectorCount } = await import('./lib/pinecone.js');
+    
+    const stats = await getWorkspaceVectorCount(ws);
+    res.json(stats);
+  } catch (e) {
+    console.error('Vector count error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get usage stats for all workspaces
+app.get('/admin/usage/all', async (req, res) => {
+  try {
+    const { getAllWorkspacesVectorCounts } = await import('./lib/pinecone.js');
+    
+    const stats = await getAllWorkspacesVectorCounts();
+    res.json(stats);
+  } catch (e) {
+    console.error('All workspaces usage error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get Pinecone index stats
+app.get('/admin/pinecone/stats', async (req, res) => {
+  try {
+    const { getIndexStats } = await import('./lib/pinecone.js');
+    
+    const stats = await getIndexStats();
+    res.json(stats);
+  } catch (e) {
+    console.error('Pinecone stats error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get Pinecone usage stats for a workspace (read/write units)
+app.get('/workspaces/:id/pinecone/usage', async (req, res) => {
+  try {
+    const ws = req.params.id;
+    const days = parseInt(req.query.days) || 30;
+    const { getPineconeUsageStats } = await import('./lib/pinecone.js');
+    
+    const stats = await getPineconeUsageStats(ws, days);
+    res.json(stats);
+  } catch (e) {
+    console.error('Pinecone usage stats error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get total Pinecone usage across all workspaces
+app.get('/admin/pinecone/usage/total', async (req, res) => {
+  try {
+    const days = parseInt(req.query.days) || 30;
+    const { getTotalPineconeUsage } = await import('./lib/pinecone.js');
+    
+    const stats = await getTotalPineconeUsage(days);
+    res.json(stats);
+  } catch (e) {
+    console.error('Total Pinecone usage error:', e);
     res.status(500).json({ error: e.message });
   }
 });
