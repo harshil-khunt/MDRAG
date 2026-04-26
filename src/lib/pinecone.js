@@ -147,6 +147,7 @@ export async function searchVectors(queryEmbedding, namespace, topK = 30) {
  * @param {string} namespace - Workspace ID
  */
 export async function deleteVectors(ids, namespace) {
+  console.log("ids");
   try {
     const index = await initPinecone();
     

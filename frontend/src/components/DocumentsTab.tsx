@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Card, Upload, Button, Input, Table, Modal, Tag, Space, App } from 'antd'
 import {
   UploadOutlined,
@@ -36,9 +36,28 @@ const DocumentsTab = ({ workspaceId }: DocumentsTabProps) => {
   
   // Track which items we've already shown success messages for
   const completedItemsRef = useRef<Set<string>>(new Set())
+  const messageRef = useRef(message)
+  
+  // Update message ref when it changes
+  useEffect(() => {
+    messageRef.current = message
+  }, [message])
+  
+  const loadDocuments = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await workspaceApi.getWorkspaceDocuments(workspaceId)
+      setDocuments(data.documents)
+    } catch (error: any) {
+      messageRef.current.error(error.response?.data?.error || error.response?.data?.detail || 'Failed to load documents')
+    } finally {
+      setLoading(false)
+    }
+  }, [workspaceId])
+  
   useEffect(() => {
     loadDocuments()
-  }, [workspaceId])
+  }, [loadDocuments])
   
   // Auto-refresh when items are processing
   useEffect(() => {
@@ -56,7 +75,7 @@ const DocumentsTab = ({ workspaceId }: DocumentsTabProps) => {
             const age = now - item.timestamp
             if (age > TIMEOUT) {
               console.warn(`⏱️ ${item.name} timed out after ${Math.round(age / 1000)}s`)
-              message.warning(`${item.name} is taking longer than expected. Please check if the worker is running.`)
+              messageRef.current.warning(`${item.name} is taking longer than expected. Please check if the worker is running.`)
               return false
             }
             return true
@@ -67,7 +86,7 @@ const DocumentsTab = ({ workspaceId }: DocumentsTabProps) => {
       
       return () => clearInterval(interval)
     }
-  }, [processingItems.length])
+  }, [processingItems.length, loadDocuments])
   
   // Remove items from processing when they appear in documents AND have chunks
   useEffect(() => {
@@ -104,7 +123,7 @@ const DocumentsTab = ({ workspaceId }: DocumentsTabProps) => {
             
             // Use setTimeout to avoid calling message during render
             setTimeout(() => {
-              message.success(`${item.name} processed successfully! (${matchingDocs.length} pages, ${totalChunks} chunks)`)
+              messageRef.current.success(`${item.name} processed successfully! (${matchingDocs.length} pages, ${totalChunks} chunks)`)
             }, 0)
           }
           
@@ -113,19 +132,7 @@ const DocumentsTab = ({ workspaceId }: DocumentsTabProps) => {
         return stillProcessing
       })
     }
-  }, [documents, processingItems, message])
-
-  const loadDocuments = async () => {
-    setLoading(true)
-    try {
-      const data = await workspaceApi.getWorkspaceDocuments(workspaceId)
-      setDocuments(data.documents)
-    } catch (error: any) {
-      message.error(error.response?.data?.error || error.response?.data?.detail || 'Failed to load documents')
-    } finally {
-      setLoading(false)
-    }
-  }
+  }, [documents, processingItems])
 
   const handleFileUpload = async () => {
     const timestamp = Date.now()

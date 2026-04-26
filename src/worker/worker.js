@@ -64,6 +64,7 @@ const fileWorker = new Worker('process-file', async job => {
     );
     
     console.error(`❌ File job ${job.id} failed:`, error.message);
+    console.error(`❌ Full error:`, error);
     throw error;
   }
 }, { 
@@ -79,9 +80,13 @@ fileWorker.on('ready', () => {
 });
 
 const urlWorker = new Worker('process-url', async job => {
-  console.log(`\n🔄 Processing URL job ${job.id}`);
-  console.log(`   URL: ${job.data.url}`);
-  console.log(`   Mode: ${job.data.crawlMode || 'sitemap'}`);
+  console.log(`\n========================================`);
+  console.log(`🔄 PROCESSING URL JOB ${job.id}`);
+  console.log(`========================================`);
+  console.log(`URL: ${job.data.url}`);
+  console.log(`Mode: ${job.data.crawlMode || 'sitemap'}`);
+  console.log(`Workspace: ${job.data.workspaceId}`);
+  console.log(`========================================\n`);
   
   // Update job status to processing
   const { updateJobProgress } = await import('../lib/database.js');
@@ -102,7 +107,7 @@ const urlWorker = new Worker('process-url', async job => {
       'completed'
     );
     
-    console.log(`✅ URL job ${job.id} completed successfully`);
+    console.log(`\n✅✅✅ URL JOB ${job.id} COMPLETED SUCCESSFULLY ✅✅✅\n`);
   } catch (error) {
     // Mark as failed
     await updateJobProgress(job.id.toString(),
@@ -110,15 +115,22 @@ const urlWorker = new Worker('process-url', async job => {
       'failed'
     );
     
-    console.error(`❌ URL job ${job.id} failed:`, error.message);
-    console.error(`   Error details:`, error.stack);
+    console.error(`\n❌❌❌ URL JOB ${job.id} FAILED ❌❌❌`);
+    console.error(`Error: ${error.message}`);
+    console.error(`Stack: ${error.stack}\n`);
     throw error;
   }
 }, { 
   connection,
   autorun: true,
   removeOnComplete: { count: 100 },
-  removeOnFail: { count: 100 }
+  removeOnFail: { count: 100 },
+  concurrency: 1
+});
+
+urlWorker.on('ready', () => {
+  console.log('✅ URL worker is ready and connected to Redis');
+  console.log('   Listening for jobs on queue: process-url');
 });
 
 const customTextWorker = new Worker('process-custom-text', async job => {
@@ -153,12 +165,12 @@ fileWorker.on('error', err => {
   }
 });
 
-urlWorker.on('completed', job => console.log(`✅ URL job ${job.id} completed`));
+urlWorker.on('completed', job => {
+  console.log(`\n🎉🎉🎉 URL JOB ${job.id} COMPLETED 🎉🎉🎉\n`);
+});
 urlWorker.on('failed', (job, err) => {
-  console.error(`❌ URL job ${job?.id} failed:`, err.message);
-  if (err.message.includes('ECONNRESET')) {
-    console.log('⚠️  Connection reset detected. Worker will retry automatically.');
-  }
+  console.error(`\n💥💥💥 URL JOB ${job?.id} FAILED 💥💥💥`);
+  console.error(`Error: ${err.message}\n`);
 });
 urlWorker.on('error', err => {
   console.error('❌ URL worker error:', err.message);
@@ -209,11 +221,38 @@ console.log('   - URL worker: listening on "process-url" queue');
 console.log('   - Custom text worker: listening on "process-custom-text" queue');
 console.log('\n👀 Waiting for jobs...\n');
 
-// Log when workers are actually ready
-Promise.all([
-  new Promise(resolve => fileWorker.on('ready', resolve)),
-  new Promise(resolve => urlWorker.on('ready', resolve)),
-  new Promise(resolve => customTextWorker.on('ready', resolve))
-]).then(() => {
-  console.log('🎯 All workers are connected and ready to process jobs!');
-});
+// Check queue status immediately (don't wait for ready event)
+setTimeout(async () => {
+  try {
+    console.log('🔍 Checking queue status...');
+    const { Queue } = await import('bullmq');
+    const config = (await import('../config.js')).default;
+    
+    const connection = { 
+      host: config.redis.host, 
+      port: config.redis.port,
+      password: config.redis.password
+    };
+    
+    const urlQueueCheck = new Queue('process-url', { connection });
+    const urlCounts = await urlQueueCheck.getJobCounts();
+    
+    console.log('\n📊 URL Queue Status:');
+    console.log(`   Waiting: ${urlCounts.waiting}`);
+    console.log(`   Active: ${urlCounts.active}`);
+    console.log(`   Completed: ${urlCounts.completed}`);
+    console.log(`   Failed: ${urlCounts.failed}\n`);
+    
+    if (urlCounts.waiting > 0) {
+      console.log(`⚠️  WARNING: ${urlCounts.waiting} URL jobs are waiting but not being processed!`);
+      console.log(`   Checking worker connection...`);
+      
+      // Try to manually trigger job processing
+      console.log(`   Worker should pick up jobs automatically...`);
+    }
+    
+    await urlQueueCheck.close();
+  } catch (error) {
+    console.error('❌ Failed to check queue status:', error.message);
+  }
+}, 2000); // Check after 2 seconds

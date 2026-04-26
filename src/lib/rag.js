@@ -1091,7 +1091,50 @@ Answer:`;
 
     // Check if human agent escalation is needed
     const needsHumanAgent = llmOutput.includes('ESCALATE_TO_HUMAN_AGENT');
-    const cleanedOutput = needsHumanAgent ? llmOutput.replace(/ESCALATE_TO_HUMAN_AGENT/g, ' ').trim() : llmOutput;
+    let cleanedOutput = needsHumanAgent ? llmOutput.replace(/ESCALATE_TO_HUMAN_AGENT/g, '').trim() : llmOutput;
+    
+    // If human agent is needed, provide a friendly default message in the user's language
+    if (needsHumanAgent && (!cleanedOutput || cleanedOutput.length < 10)) {
+      // Detect language from query
+      const isPT = /\b(oi|olá|ola|obrigad|tchau|você|voce|posso|como|bom dia|boa|agente humano|falar com|atendimento|suporte)\b/i.test(query);
+      const isES = /\b(hola|gracias|adiós|adios|qué|que tal|puedes|quién|quien|cómo|buenos|buenas|agente humana|conectar|hablar con|atención)\b/i.test(query);
+      const isFR = /\b(bonjour|merci|salut|comment|parler|agent humain|service client|aide)\b/i.test(query);
+      const isDE = /\b(hallo|danke|guten|wie|sprechen|menschlicher agent|kundendienst|hilfe)\b/i.test(query);
+      const isHI = /\b(नमस्ते|धन्यवाद|मदद|सहायता|एजेंट)\b/i.test(query);
+      const isAR = /\b(مرحبا|شكرا|مساعدة|دعم|وكيل)\b/i.test(query);
+      const isZH = /\b(你好|谢谢|帮助|支持|客服|人工)\b/i.test(query);
+      const isJA = /\b(こんにちは|ありがとう|助けて|サポート|エージェント|人間)\b/i.test(query);
+      const isKO = /\b(안녕|감사|도움|지원|상담원|사람)\b/i.test(query);
+      const isIT = /\b(ciao|grazie|aiuto|supporto|agente umano|parlare con)\b/i.test(query);
+      const isRU = /\b(привет|спасибо|помощь|поддержка|агент|человек)\b/i.test(query);
+      
+      if (isPT) {
+        cleanedOutput = "Entendo que você gostaria de falar com um agente humano. Estou conectando você agora. Um membro da nossa equipe entrará em contato em breve para ajudá-lo.";
+      } else if (isES) {
+        cleanedOutput = "Entiendo que te gustaría hablar con un agente humano. Te estoy conectando ahora. Un miembro de nuestro equipo se pondrá en contacto contigo pronto para ayudarte.";
+      } else if (isFR) {
+        cleanedOutput = "Je comprends que vous souhaitez parler à un agent humain. Je vous connecte maintenant. Un membre de notre équipe vous contactera bientôt pour vous aider.";
+      } else if (isDE) {
+        cleanedOutput = "Ich verstehe, dass Sie mit einem menschlichen Agenten sprechen möchten. Ich verbinde Sie jetzt. Ein Mitglied unseres Teams wird sich in Kürze mit Ihnen in Verbindung setzen, um Ihnen zu helfen.";
+      } else if (isHI) {
+        cleanedOutput = "मैं समझता हूं कि आप एक मानव एजेंट से बात करना चाहते हैं। मैं आपको अभी कनेक्ट कर रहा हूं। हमारी टीम का एक सदस्य जल्द ही आपकी मदद के लिए संपर्क करेगा।";
+      } else if (isAR) {
+        cleanedOutput = "أفهم أنك ترغب في التحدث إلى وكيل بشري. أنا أقوم بتوصيلك الآن. سيتواصل معك أحد أعضاء فريقنا قريبًا لمساعدتك.";
+      } else if (isZH) {
+        cleanedOutput = "我理解您想与人工客服交谈。我现在为您转接。我们的团队成员将很快与您联系以提供帮助。";
+      } else if (isJA) {
+        cleanedOutput = "人間のエージェントと話したいとのことですね。今接続しています。チームメンバーがすぐにお手伝いのためにご連絡いたします。";
+      } else if (isKO) {
+        cleanedOutput = "상담원과 대화하고 싶으시다는 것을 이해합니다. 지금 연결해 드리겠습니다. 팀원이 곧 도움을 드리기 위해 연락드릴 것입니다.";
+      } else if (isIT) {
+        cleanedOutput = "Capisco che vorresti parlare con un agente umano. Ti sto connettendo ora. Un membro del nostro team ti contatterà presto per aiutarti.";
+      } else if (isRU) {
+        cleanedOutput = "Я понимаю, что вы хотите поговорить с человеком-агентом. Я подключаю вас сейчас. Член нашей команды скоро свяжется с вами, чтобы помочь.";
+      } else {
+        // Default English
+        cleanedOutput = "I understand you'd like to speak with a human agent. I'm connecting you now. A member of our team will be in touch shortly to assist you.";
+      }
+    }
 
     // 6) Extract sources from documents only
     const sources = retrieved && retrieved.length > 0

@@ -2,13 +2,21 @@ import { MongoClient } from 'mongodb';
 import config from '../config.js';
 import crypto from 'crypto';
 
-const client = new MongoClient(config.mongoUri, {
-  tls: true,
-  tlsAllowInvalidCertificates: false,
+// For Windows + Node v22 + MongoDB Atlas SSL issues
+const connectionOptions = {
   serverSelectionTimeoutMS: 5000,
   connectTimeoutMS: 10000,
   socketTimeoutMS: 45000,
-});
+};
+
+// Only add SSL options if using mongodb:// (not mongodb+srv://)
+if (config.mongoUri.startsWith('mongodb://')) {
+  connectionOptions.tls = true;
+  connectionOptions.tlsAllowInvalidCertificates = true;
+  connectionOptions.tlsAllowInvalidHostnames = true;
+}
+
+const client = new MongoClient(config.mongoUri, connectionOptions);
 
 let db;
 
@@ -54,7 +62,7 @@ export async function createWorkspace(id, name, owner, llmProvider = 'gemini', u
     : {
         llm_provider: 'gemini',
         llm_model: 'gemini-2.5-flash',
-        embedding_model: 'text-embedding-004',
+        embedding_model: 'gemini-embedding-001',
         user_api_key: userApiKey, // User's own key (optional)
         use_default_key: !userApiKey // Use default if no user key
       };

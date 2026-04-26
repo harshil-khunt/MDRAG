@@ -42,16 +42,35 @@ async function getGeminiEmbeddings(texts, model, retries = 3, userApiKey = null)
   const apiKey = userApiKey || config.geminiKey;
   if (!apiKey) throw new Error('GEMINI_API_KEY not provided');
 
-  const genAIInstance = new GoogleGenerativeAI(apiKey);
-  const embeddingModel = genAIInstance.getGenerativeModel({ model });
+  // Use gemini-embedding-001 model with 768 dimensions via REST API (v1beta)
+  const modelName = 'gemini-embedding-001';
   
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       const embeddings = [];
       
+      // Use v1beta API endpoint (v1 doesn't support embedding models)
       for (const text of texts) {
-        const result = await embeddingModel.embedContent(text);
-        embeddings.push(result.embedding.values);
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:embedContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              content: { parts: [{ text }] },
+              taskType: 'RETRIEVAL_DOCUMENT',
+              outputDimensionality: 768 // Reduce from 3072 to 768 to match Pinecone index
+            })
+          }
+        );
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error?.message || `HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        embeddings.push(data.embedding.values);
       }
       
       return embeddings;
@@ -61,7 +80,7 @@ async function getGeminiEmbeddings(texts, model, retries = 3, userApiKey = null)
       // If user key fails and we have a default key, try fallback
       if (userApiKey && config.geminiKey && userApiKey !== config.geminiKey) {
         console.warn('User API key failed, falling back to default key');
-        return getGeminiEmbeddings(texts, model, retries, null); // Retry with default
+        return getGeminiEmbeddings(texts, model, retries, null);
       }
       
       if ((error.message?.includes('429') || error.message?.includes('quota')) && attempt < retries - 1) {

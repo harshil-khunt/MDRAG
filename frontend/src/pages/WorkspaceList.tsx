@@ -27,6 +27,7 @@ const WorkspaceList = () => {
   // Load base prompt when modal opens or role changes
   useEffect(() => {
     if (modalVisible) {
+      console.log('Modal opened, loading prompt for role:', chatbotRole)
       loadBasePrompt(chatbotRole)
     }
   }, [modalVisible, chatbotRole])
@@ -36,10 +37,14 @@ const WorkspaceList = () => {
     try {
       // For custom role, load customer_service as default template
       const roleToLoad = role === 'custom' ? 'customer_service' : role
+      console.log('Loading prompt for role:', roleToLoad)
       const response = await workspaceApi.getDefaultPrompt(roleToLoad)
+      console.log('Received prompt:', response)
       setBasePrompt(response.prompt)
     } catch (error) {
       console.error('Failed to load base prompt:', error)
+      // Set a fallback prompt if API fails
+      setBasePrompt('Failed to load default prompt. Please check if the backend server is running.')
     } finally {
       setLoadingPrompt(false)
     }
@@ -388,7 +393,9 @@ const WorkspaceList = () => {
                   </Radio>
                 </Card>
               </Space>
-            {/* Base Prompt Display (for all roles) */}
+            </Radio.Group>
+            
+            {/* Base Prompt Display (for all roles) - MOVED OUTSIDE Radio.Group */}
             <div className="mt-4">
               <Text strong className="block mb-2">
                 {chatbotRole === 'custom' ? 'Custom Base Prompt' : `Base Prompt (Default for ${chatbotRole === 'customer_service' ? 'Customer Service' : chatbotRole === 'sales' ? 'Sales Representative' : 'Technical Support'})`}
@@ -431,7 +438,6 @@ const WorkspaceList = () => {
                 </>
               )}
             </div>
-            </Radio.Group>
           </div>
 
           <div className="mt-6 p-4 bg-blue-50 rounded border border-blue-200">

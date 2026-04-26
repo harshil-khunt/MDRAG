@@ -213,10 +213,21 @@ app.post('/workspaces/:id/upload/url', async (req, res) => {
       excludePaths = []
     } = req.body;
     
-    if (!url) return res.status(400).json({ error: 'url is required' });
+    console.log(`\n📤 URL UPLOAD REQUEST RECEIVED`);
+    console.log(`   Workspace: ${ws}`);
+    console.log(`   URL: ${url}`);
+    console.log(`   Crawl Mode: ${crawlMode}`);
+    console.log(`   Include Paths: ${includePaths}`);
+    console.log(`   Exclude Paths: ${excludePaths}`);
+    
+    if (!url) {
+      console.error('❌ No URL provided in request');
+      return res.status(400).json({ error: 'url is required' });
+    }
 
     // If trackChanges is enabled, add to tracked_sources
     if (trackChanges) {
+      console.log(`📌 Adding to tracked sources...`);
       await upsertTrackedSource(ws, url, {
         crawlDomain: crawlMode !== 'individual',
         scheduleMinutes: scheduleMinutes || 60,
@@ -225,6 +236,7 @@ app.post('/workspaces/:id/upload/url', async (req, res) => {
     }
 
     // Enqueue crawl job with new options
+    console.log(`⚡ Enqueueing URL job...`);
     const job = await urlQueue.add('process-url', {  // Changed from 'process-url-job' to 'process-url'
       url, 
       workspaceId: ws, 
@@ -235,6 +247,8 @@ app.post('/workspaces/:id/upload/url', async (req, res) => {
       includePaths, // ['blog/*', 'dev/*']
       excludePaths  // ['admin/*', 'login/*']
     });
+    
+    console.log(`✅ URL job enqueued with ID: ${job.id}`);
     
     // Create job tracking entry
     const { createJobTracking } = await import('./lib/database.js');
@@ -247,6 +261,9 @@ app.post('/workspaces/:id/upload/url', async (req, res) => {
       scheduleMinutes: scheduleMinutes || 60
     });
     
+    console.log(`✅ Job tracking created`);
+    console.log(`📊 Response: url enqueued, jobId=${job.id}\n`);
+    
     res.status(202).json({ 
       message: 'url enqueued',
       jobId: job.id.toString(),
@@ -254,7 +271,7 @@ app.post('/workspaces/:id/upload/url', async (req, res) => {
       ocr: enableOcr ? 'enabled' : 'disabled'
     });
   } catch (e) {
-    console.error(e);
+    console.error('❌ URL upload error:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -651,4 +668,28 @@ app.get('/admin/pinecone/usage/total', async (req, res) => {
   }
 });
 
-app.listen(config.port, () => console.log(`Server listening on ${config.port}`));
+// Test MongoDB connection before starting server
+import { connectDb } from './lib/database.js';
+
+async function startServer() {
+  // Test MongoDB connection (non-blocking)
+  console.log('🔌 Testing MongoDB connection...');
+  try {
+    await connectDb();
+    console.log('✅ MongoDB connected successfully');
+  } catch (error) {
+    console.error('⚠️  MongoDB connection failed:', error.message);
+    console.error('   Server will start but database features will not work');
+    console.error('   Please fix MongoDB connection in .env\n');
+  }
+  
+  // Start Express server regardless of MongoDB status
+  app.listen(config.port, () => {
+    console.log(`\n🚀 Server running on port ${config.port}`);
+    console.log(`📍 API endpoint: http://localhost:${config.port}`);
+    console.log(`\n⚠️  Don't forget to start the worker in a separate terminal:`);
+    console.log(`   npm run worker\n`);
+  });
+}
+
+startServer();

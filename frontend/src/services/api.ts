@@ -1,6 +1,8 @@
 import axios from 'axios'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3101'
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3100'  // Changed default to 3100
+
+console.log('🔗 API Base URL:', API_BASE_URL)
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -122,7 +124,9 @@ export const workspaceApi = {
 
   // Get default prompt for a role
   getDefaultPrompt: async (role: string): Promise<{ prompt: string }> => {
+    console.log('🔍 Fetching prompt from:', `${API_BASE_URL}/role-prompts/${role}`)
     const response = await api.get(`/role-prompts/${role}`)
+    console.log('📥 Response data:', response.data)
     return response.data
   },
 

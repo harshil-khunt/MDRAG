@@ -28,3 +28,9 @@ const connection = {
 export const fileQueue = new Queue('process-file', { connection });
 export const urlQueue = new Queue('process-url', { connection });
 export const customTextQueue = new Queue('process-custom-text', { connection });
+
+console.log('📋 Queues initialized:');
+console.log('   - process-file');
+console.log('   - process-url');
+console.log('   - process-custom-text');
+console.log(`   Redis: ${connection.host}:${connection.port}`);
